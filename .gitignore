@@ -1,0 +1,63 @@
+# ---- Secrets / env files ----
+.env
+.env.*
+!.env.example
+
+# ---- Node / JS ----
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/.vite/
+**/.cache/
+**/.eslintcache
+**/.npm/
+**/.pnpm-store/
+**/.turbo/
+**/coverage/
+**/.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Vercel
+**/.vercel/
+
+# ---- Java / Maven ----
+**/target/
+**/*.class
+**/*.jar
+**/*.war
+**/*.ear
+**/dependency-reduced-pom.xml
+hs_err_pid*
+*.hprof
+
+# ---- IDE / OS ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vs/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Eclipse
+.project
+.classpath
+.settings/
+bin/
+*.launch
+
+# macOS / Windows junk
+.DS_Store
+Thumbs.db
+Desktop.ini

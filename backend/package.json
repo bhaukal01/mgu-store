@@ -1,0 +1,24 @@
+{
+  "name": "store-backend",
+  "version": "1.0.0",
+  "description": "backend for mgu web store",
+  "license": "ISC",
+  "author": "bhaukal",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.8.3",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql": "^2.18.1",
+    "node-cron": "^3.0.3",
+    "rcon": "^1.1.0",
+    "rcon-client": "^4.2.5"
+  }
+}

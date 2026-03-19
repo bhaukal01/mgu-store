@@ -1,0 +1,4 @@
+name: MGUStoreProxy
+main: one.mgu.storeproxy.MGUStoreProxyPlugin
+version: 1.0.0
+author: bhaukal

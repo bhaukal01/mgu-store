@@ -1,0 +1,4 @@
+name: MGUStoreSpigot
+main: one.mgu.storespigot.MGUStoreSpigotPlugin
+version: 1.0.0
+author: bhaukal

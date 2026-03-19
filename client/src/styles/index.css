@@ -1,0 +1,62 @@
+body {
+  background-color: #121212;
+  color: #eaeaea;
+}
+
+.btn-custom {
+  background-color: #ffb000;
+  color: #121212;
+  font-weight: bold;
+  border: 2px solid #ffd166;
+  width: 200px;
+  transition: all 0.3s ease-in-out;
+}
+.btn-custom:hover {
+  background-color: #121212;
+  border-color: #121212;
+}
+
+.card {
+  background-color: #1e1e1e;
+  border: 1px solid #ffb000;
+  color: #eaeaea;
+}
+
+.logo {
+  width: 300px;
+  max-width: 100%;
+}
+
+/* Custom glow effect */
+.btn-glow {
+  background-color: #ffb000;
+  color: #121212;
+  font-weight: bold;
+  border: 2px solid #ffd166;
+  width: 200px;
+  transition: all 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+}
+
+.btn-glow:hover {
+  background-color: #ffb300;
+  border-color: #ffc341;
+  box-shadow: 0px 0px 15px rgba(255, 176, 0, 0.8); /* Adds glow effect */
+  color: #121212;
+}
+a {
+  text-decoration: none;
+  color: white;
+}
+
+.rank_img {
+  max-width: 300px;
+  max-height: 300px;
+}
+
+.infoimg {
+  max-width: 25px;
+}
+
+.img_main {
+  max-width: 200px;
+}

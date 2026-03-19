@@ -1,0 +1,82 @@
+body {
+  background-color: #121212;
+  color: #eaeaea;
+}
+
+.btn-custom {
+  background-color: #ffb000;
+  color: #121212;
+  font-weight: bold;
+  border: 2px solid #ffd166;
+  width: 200px;
+  transition: all 0.3s ease-in-out;
+}
+.btn-custom:hover {
+  background-color: #121212;
+  border-color: #121212;
+}
+
+.logo {
+  width: 300px;
+  max-width: 100%;
+}
+
+.btn-buy {
+  background-color: #ffb000;
+  color: #121212;
+  font-weight: bold;
+  border: 2px solid #ffd166;
+  width: 120px;
+  transition: 0.3s ease-in-out;
+}
+
+.btn-buy:hover {
+  background-color: #ffb300;
+  border-color: #ffb000;
+  transform: scale(1.1);
+  color: #000000;
+}
+
+.card {
+  background-color: #1e1e1e;
+  border: 1px solid #ffb000;
+  color: #eaeaea;
+  position: relative;
+  transition: transform 0.3s ease-in-out;
+}
+
+.card:hover {
+  transform: scale(1.05);
+}
+
+.info-box {
+  display: none;
+  position: absolute;
+  bottom: 110%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.9);
+  padding: 20px;
+  border-radius: 10px;
+  width: 220px;
+  color: #ffc338;
+  text-align: center;
+  font-size: 15px;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.card:hover .info-box {
+  display: block;
+  opacity: 1;
+}
+
+.section-title {
+  font-size: 24px;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #ffb000;
+  display: inline-block;
+}

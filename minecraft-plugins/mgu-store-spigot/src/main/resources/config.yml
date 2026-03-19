@@ -1,0 +1,16 @@
+# MGU Store Spigot Plugin
+# Receives fulfillment instructions from the proxy over Plugin Messaging.
+
+messaging:
+  channel: "mgu:store"
+  # Optional: if you need a legacy (non-namespaced) channel for very old setups,
+  # set it here and the plugin will try to register both.
+  # legacyChannel: "MGUStore"
+  # shared key copied from proxy plugin's plugins/MGUStoreProxy/key/key.txt
+  key: ""
+  maxClockSkewSeconds: 120
+  nonceTtlSeconds: 600
+
+# Safety: if you only want to allow specific commands, list prefixes here.
+# Empty = allow all commands received (not recommended if you share the key widely).
+commandAllowlistPrefixes: []

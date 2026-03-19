@@ -1,0 +1,187 @@
+{
+    "currency": "INR",
+    "lifetimeRanks": [
+        {
+            "code": "VIP",
+            "name": "VIP",
+            "price": 199,
+            "img": "https://ik.imagekit.io/1usyzu9ab/VIP.png?updatedAt=1742319284867",
+            "perks": [
+                "Reduces RandomTP Cooldown by 50%",
+                "4 Player Vaults (/pv)",
+                "5 sethomes",
+                "2 Player Warps",
+                "+30% More Claim Blocks",
+                "Access to /hat command",
+                "Access to green chat color (&a and &2)",
+                "Ability to start and track 6 Quests",
+                "Access to 5 Jobs",
+                "Access to /craft command",
+                "Access to VIP Kit (/kit VIP) (Weekly)",
+                "5000 Claim Blocks (One Time/Seasonal)"
+            ]
+        },
+        {
+            "code": "VIP+",
+            "name": "VIP+",
+            "price": 399,
+            "img": "https://ik.imagekit.io/1usyzu9ab/VIP+.png?updatedAt=1742319285111",
+            "perks": [
+                "All previous rank perks",
+                "/nick command",
+                "7 Set Homes",
+                "3 Player Warps",
+                "6 Player Vaults (/pv)",
+                "Access to /near command",
+                "+50% More Claim Blocks",
+                "Access to blue chat color (&9 and &1)",
+                "Ability to start and track 8 Quests",
+                "Access to 7 Jobs",
+                "Ability to Color Signs",
+                "Access to VIP+ Kit (/kit VIP+) (Weekly)",
+                "8000 Claim Blocks (One Time/Seasonal)"
+            ]
+        },
+        {
+            "code": "Prince",
+            "name": "Prince",
+            "price": 649,
+            "img": "https://ik.imagekit.io/1usyzu9ab/Prince_1.png?updatedAt=1742319285116",
+            "perks": [
+                "All previous rank perks",
+                "10 Set Homes",
+                "4 Player Warps",
+                "8 Player Vaults (/pv)",
+                "Access to /feed command (3 minute cooldown)",
+                "+70% More Claim Blocks",
+                "Access to all chat colors (&0-9 and &a-f)",
+                "Ability to start and track 10 Quests",
+                "Access to 8 Jobs",
+                "Access to fly in your claims",
+                "Access to Prince Kit (/kit Prince) (Weekly)",
+                "10000 Claim Blocks (One Time/Seasonal)"
+            ]
+        },
+        {
+            "code": "King",
+            "name": "King",
+            "price": 1199,
+            "img": "https://ik.imagekit.io/1usyzu9ab/King_1.png?updatedAt=1742319284119",
+            "perks": [
+                "All previous rank perks",
+                "13 Set Homes",
+                "5 Player Warps",
+                "10 Player Vaults (/pv)",
+                "Access to /heal command (3 minute cooldown)",
+                "+90% More Claim Blocks",
+                "Access to all chat formatting codes (&k-o and &r)",
+                "Ability to start and track 12 Quests",
+                "Access to /fly command",
+                "Access to King Kit (/kit King) (Weekly)",
+                "13000 Claim Blocks (One Time/Seasonal)"
+            ]
+        },
+        {
+            "code": "Emperor",
+            "name": "Emperor",
+            "price": 1899,
+            "img": "https://ik.imagekit.io/1usyzu9ab/Emperor_1.png?updatedAt=1742319285605",
+            "perks": [
+                "All previous rank perks",
+                "15 Set Homes",
+                "6 Player Warps",
+                "12 Player Vaults (/pv)",
+                "Access to /repair command (3 minute cooldown)",
+                "Access to /condense command",
+                "Access to /top command",
+                "+110% More Claim Blocks",
+                "Access to all chat formatting codes (&k-o and &r)",
+                "Ability to start and track 12 Quests",
+                "Access to /fly command",
+                "Access to /itemname command",
+                "Access to /smelt command (1 minute cooldown)",
+                "Access to Emperor Kit (/kit Emperor) (Weekly)",
+                "15000 Claim Blocks (One Time/Seasonal)"
+            ]
+        },
+        {
+            "code": "Deity",
+            "name": "Deity",
+            "price": 2799,
+            "img": "https://ik.imagekit.io/1usyzu9ab/Deity.png?updatedAt=1742319285609",
+            "perks": [
+                "All previous rank perks",
+                "Unlimited Set Homes",
+                "8 Player Warps",
+                "150% More Claim Blocks",
+                "Ability to start and track 15 Quests",
+                "Ability to join full servers",
+                "Access to /smelt all command (1 minute cooldown)",
+                "Access to /repair all command (3 minute cooldown)",
+                "Exclusive Discord Chat & Events",
+                "Access to Deity Kit (/kit Deity) (Weekly)",
+                "18000 Claim Blocks (One Time/Seasonal)"
+            ]
+        }
+    ],
+    "subscriptionRanks": [
+        {
+            "code": "King (30 Days)",
+            "name": "King (30 Days)",
+            "price": 149,
+            "img": "https://ik.imagekit.io/1usyzu9ab/King_1.png?updatedAt=1742319284119",
+            "perks": [
+                "All previous rank perks",
+                "13 Set Homes",
+                "5 Player Warps",
+                "10 Player Vaults (/pv)",
+                "Access to /heal command (3 minute cooldown)",
+                "+90% More Claim Blocks",
+                "Access to all chat formatting codes (&k-o and &r)",
+                "Ability to start and track 12 Quests",
+                "Access to /fly command",
+                "Access to King Kit (/kit King) (Weekly)"
+            ]
+        },
+        {
+            "code": "Emperor (30 Days)",
+            "name": "Emperor (30 Days)",
+            "price": 249,
+            "img": "https://ik.imagekit.io/1usyzu9ab/Emperor_1.png?updatedAt=1742319285605",
+            "perks": [
+                "All previous rank perks",
+                "15 Set Homes",
+                "6 Player Warps",
+                "12 Player Vaults (/pv)",
+                "Access to /repair command (3 minute cooldown)",
+                "Access to /condense command",
+                "Access to /top command",
+                "+110% More Claim Blocks",
+                "Access to all chat formatting codes (&k-o and &r)",
+                "Ability to start and track 12 Quests",
+                "Access to /fly command",
+                "Access to /itemname command",
+                "Access to /smelt command (1 minute cooldown)",
+                "Access to Emperor Kit (/kit Emperor) (Weekly)"
+            ]
+        },
+        {
+            "code": "Deity (30 Days)",
+            "name": "Deity (30 Days)",
+            "price": 399,
+            "img": "https://ik.imagekit.io/1usyzu9ab/Deity.png?updatedAt=1742319285609",
+            "perks": [
+                "All previous rank perks",
+                "Unlimited Set Homes",
+                "8 Player Warps",
+                "150% More Claim Blocks",
+                "Ability to start and track 15 Quests",
+                "Ability to join full servers",
+                "Access to /smelt all command (1 minute cooldown)",
+                "Access to /repair all command (3 minute cooldown)",
+                "Exclusive Discord Chat & Events",
+                "Access to Deity Kit (/kit Deity) (Weekly)"
+            ]
+        }
+    ]
+}
