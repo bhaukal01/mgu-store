@@ -5,7 +5,7 @@
             "code": "VIP",
             "name": "VIP",
             "price": 199,
-            "img": "https://ik.imagekit.io/1usyzu9ab/VIP.png?updatedAt=1742319284867",
+            "img": "/ranks/VIP.png",
             "perks": [
                 "Reduces RandomTP Cooldown by 50%",
                 "4 Player Vaults (/pv)",
@@ -25,7 +25,7 @@
             "code": "VIP+",
             "name": "VIP+",
             "price": 399,
-            "img": "https://ik.imagekit.io/1usyzu9ab/VIP+.png?updatedAt=1742319285111",
+            "img": "/ranks/VIP+.png",
             "perks": [
                 "All previous rank perks",
                 "/nick command",
@@ -46,7 +46,7 @@
             "code": "Prince",
             "name": "Prince",
             "price": 649,
-            "img": "https://ik.imagekit.io/1usyzu9ab/Prince_1.png?updatedAt=1742319285116",
+            "img": "/ranks/prince.png",
             "perks": [
                 "All previous rank perks",
                 "10 Set Homes",
@@ -66,7 +66,7 @@
             "code": "King",
             "name": "King",
             "price": 1199,
-            "img": "https://ik.imagekit.io/1usyzu9ab/King_1.png?updatedAt=1742319284119",
+            "img": "/ranks/king.png",
             "perks": [
                 "All previous rank perks",
                 "13 Set Homes",
@@ -85,7 +85,7 @@
             "code": "Emperor",
             "name": "Emperor",
             "price": 1899,
-            "img": "https://ik.imagekit.io/1usyzu9ab/Emperor_1.png?updatedAt=1742319285605",
+            "img": "/ranks/emperor.png",
             "perks": [
                 "All previous rank perks",
                 "15 Set Homes",
@@ -108,7 +108,7 @@
             "code": "Deity",
             "name": "Deity",
             "price": 2799,
-            "img": "https://ik.imagekit.io/1usyzu9ab/Deity.png?updatedAt=1742319285609",
+            "img": "/ranks/deity.png",
             "perks": [
                 "All previous rank perks",
                 "Unlimited Set Homes",
@@ -129,7 +129,7 @@
             "code": "King (30 Days)",
             "name": "King (30 Days)",
             "price": 149,
-            "img": "https://ik.imagekit.io/1usyzu9ab/King_1.png?updatedAt=1742319284119",
+            "img": "/ranks/king.png",
             "perks": [
                 "All previous rank perks",
                 "13 Set Homes",
@@ -147,7 +147,7 @@
             "code": "Emperor (30 Days)",
             "name": "Emperor (30 Days)",
             "price": 249,
-            "img": "https://ik.imagekit.io/1usyzu9ab/Emperor_1.png?updatedAt=1742319285605",
+            "img": "/ranks/emperor.png",
             "perks": [
                 "All previous rank perks",
                 "15 Set Homes",
@@ -169,7 +169,7 @@
             "code": "Deity (30 Days)",
             "name": "Deity (30 Days)",
             "price": 399,
-            "img": "https://ik.imagekit.io/1usyzu9ab/Deity.png?updatedAt=1742319285609",
+            "img": "/ranks/deity.png",
             "perks": [
                 "All previous rank perks",
                 "Unlimited Set Homes",
