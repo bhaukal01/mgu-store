@@ -1,0 +1,20 @@
+# MGU Store Proxy Plugin
+# - Listens for fulfillment events from the store backend (TCP)
+# - Forwards postpurchase actions to backend servers over Plugin Messaging
+
+listener:
+  enabled: true
+  bindHost: 0.0.0.0
+  port: 25580
+  # Only allow store backend IPs (recommended). Empty = allow all.
+  allowedIps: []
+  # Auth mode must match the store backend client (recommended: hmac)
+  authMode: hmac
+  # Accept only timestamps within this window.
+  maxClockSkewSeconds: 120
+  # Replay protection window (nonce cache)
+  nonceTtlSeconds: 600
+
+pluginMessaging:
+  # Namespaced channel (must match the Spigot plugin)
+  channel: "mgu:store"
