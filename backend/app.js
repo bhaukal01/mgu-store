@@ -6,7 +6,9 @@ const cors = require("cors");
 
 const purchaseRoutes = require("./routes/purchaseRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const cmsRoutes = require("./routes/cmsRoutes");
 const Purchase = require("./models/purchaseModel");
+const { connectMongo } = require("./mongo");
 const app = express();
 
 // app.use(
@@ -20,6 +22,9 @@ app.use(express.json());
 
 // 🛒 User Purchases & Payments
 app.use("/api/purchase", purchaseRoutes);
+
+// 🧩 Storefront CMS Catalog
+app.use("/api/cms", cmsRoutes);
 
 // 🔐 Admin Panel
 app.use("/api/admin", adminRoutes);
@@ -44,6 +49,18 @@ cleanupExpiredSubscriptions();
 setInterval(cleanupExpiredSubscriptions, 60 * 60 * 1000);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-});
+
+async function startServer() {
+    try {
+        await connectMongo();
+    } catch (error) {
+        console.error("MongoDB CMS connection failed:", error.message || error);
+        process.exit(1);
+    }
+
+    app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+
+startServer();

@@ -1,60 +1,60 @@
 const express = require("express");
 const Purchase = require("../models/purchaseModel");
 const axios = require("axios");
+const mongoose = require("mongoose");
 require("dotenv").config();
 
 const {
-    PRODUCTS,
-    STORE_DISCOUNTS,
-    LIFETIME_RANK_ORDER,
-    getProductOrNull,
     isValidMinecraftUsername,
-    isLifetimeRank,
-    getLifetimeRankIndex,
-} = require("../config/products");
+    isLifetimeRankProduct,
+    listLifetimeRankProducts,
+    listPurchasableProducts,
+    getPurchasableProductByCode,
+    getPurchasableProductById,
+} = require("../services/purchasableProductService");
+const {
+    listVisibleStorePromotions,
+    evaluateOrderPricing,
+    saveCheckoutOrderContext,
+    getCheckoutOrderContext,
+    markCheckoutOrderContextCompleted,
+    recordPromotionRedemptionFromContext,
+} = require("../services/storePromotionService");
 
 const { dispatchFulfillmentToProxy } = require("../utils/proxyPluginClient");
+const {
+    getActivePurchaseActionsByProductId,
+} = require("../services/postPurchaseActionService");
 
 const router = express.Router();
 router.use(express.json());
 
-const PRODUCT_KEYS = Object.keys(PRODUCTS);
 const processingOrders = new Map();
 const completedOrders = new Set();
 
-function encodeProductIndex(productCode) {
-    const idx = PRODUCT_KEYS.indexOf(productCode);
-    if (idx < 0) throw new Error("Unknown product code");
-    return idx.toString(36);
-}
-
-function decodeProductIndex(token) {
-    const idx = Number.parseInt(String(token), 36);
-    if (!Number.isFinite(idx) || idx < 0 || idx >= PRODUCT_KEYS.length) return null;
-    return PRODUCT_KEYS[idx];
-}
-
-function encodeLifetimeRank(rankName) {
+function encodeFromLifetimeRank(rankName) {
     if (!rankName || rankName === "NONE") return "x";
-    const idx = getLifetimeRankIndex(rankName);
-    if (idx < 0) throw new Error("Unsupported rank upgrade");
-    return idx.toString(36);
+    return Buffer.from(String(rankName), "utf8").toString("base64url");
 }
 
-function decodeLifetimeRank(token) {
+function decodeFromLifetimeRank(token) {
     if (!token || token === "x") return "NONE";
-    const idx = Number.parseInt(String(token), 36);
-    if (!Number.isFinite(idx) || idx < 0) return null;
-    return LIFETIME_RANK_ORDER[idx] || null;
+
+    try {
+        const decoded = Buffer.from(String(token), "base64url").toString("utf8");
+        return decoded || null;
+    } catch (_error) {
+        return null;
+    }
 }
 
-function buildCashfreeOrderId({ username, productCode, fromLifetimeRank, mode }) {
-    const nonce = Math.random().toString(36).slice(2, 8);
+function buildCashfreeOrderId({ productId, fromLifetimeRank, mode }) {
+    const nonce = Math.random().toString(36).slice(2, 6);
     const ts = Date.now().toString(36);
-    const productToken = encodeProductIndex(productCode);
-    const fromToken = encodeLifetimeRank(fromLifetimeRank || "NONE");
+    const productToken = String(productId || "").trim();
+    const fromToken = encodeFromLifetimeRank(fromLifetimeRank || "NONE");
     const modeToken = mode === "rankup" ? "r" : "b";
-    const orderId = `MG2.${ts}.${nonce}.${username}.${productToken}.${fromToken}.${modeToken}`;
+    const orderId = `MG3.${ts}.${nonce}.${productToken}.${fromToken}.${modeToken}`;
 
     if (orderId.length > 64) {
         throw new Error("Generated orderId too long");
@@ -63,17 +63,56 @@ function buildCashfreeOrderId({ username, productCode, fromLifetimeRank, mode })
 }
 
 function parseCashfreeOrderId(orderId) {
+    if (typeof orderId !== "string" || !orderId.startsWith("MG3.")) return null;
+    const parts = orderId.split(".");
+    if (parts.length < 6) return null;
+
+    const productId = String(parts[3] || "").trim();
+    const fromLifetimeRank = decodeFromLifetimeRank(parts[4]);
+    const mode = parts[5] === "r" ? "rankup" : "buy";
+
+    if (!mongoose.Types.ObjectId.isValid(productId) || fromLifetimeRank === null) {
+        return null;
+    }
+
+    return { productId, fromLifetimeRank, mode };
+}
+
+async function parseLegacyCashfreeOrderId(orderId) {
     if (typeof orderId !== "string" || !orderId.startsWith("MG2.")) return null;
     const parts = orderId.split(".");
     if (parts.length < 7) return null;
 
-    const username = parts[3];
-    const productCode = decodeProductIndex(parts[4]);
-    const fromLifetimeRank = decodeLifetimeRank(parts[5]);
+    const username = String(parts[3] || "").trim();
+    const productIdx = Number.parseInt(String(parts[4]), 36);
+    const fromToken = String(parts[5] || "").trim();
+    const fromIdx = fromToken === "x" ? -1 : Number.parseInt(fromToken, 36);
     const mode = parts[6] === "r" ? "rankup" : "buy";
 
-    if (!productCode || fromLifetimeRank === null) return null;
-    return { username, productCode, fromLifetimeRank, mode };
+    if (!Number.isFinite(productIdx) || productIdx < 0) return null;
+    if (fromIdx < -1) return null;
+
+    const rankProducts = await listPurchasableProducts({
+        includeInactive: true,
+        categories: ["ranks"],
+    });
+    const product = rankProducts[productIdx] || null;
+    if (!product?.id) return null;
+
+    const lifetimeRanks = await listLifetimeRankProducts({ includeInactive: true });
+    const fromLifetimeRank =
+        fromIdx === -1
+            ? "NONE"
+            : String(lifetimeRanks[fromIdx]?.displayName || "").trim() || null;
+
+    if (fromLifetimeRank === null) return null;
+
+    return {
+        username,
+        productId: product.id,
+        fromLifetimeRank,
+        mode,
+    };
 }
 
 // Throttle Cashfree lookups per orderId to avoid hammering API from status polling.
@@ -90,43 +129,16 @@ function rankTypeForProduct(product) {
     return product.type === "rank_subscription_30d" ? "subscription" : "permanent";
 }
 
+function isRankProduct(product) {
+    return product?.category === "ranks";
+}
+
 function parseCommandsText(commandsText) {
     if (!commandsText) return [];
     return String(commandsText)
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter(Boolean);
-}
-
-function getActiveStoreDiscounts() {
-    const now = Date.now();
-
-    return (STORE_DISCOUNTS || [])
-        .filter((discount) => {
-            if (!discount || typeof discount !== "object") return false;
-            if (discount.active === false) return false;
-
-            const startsAt = discount.startsAt ? Date.parse(discount.startsAt) : null;
-            const endsAt = discount.endsAt ? Date.parse(discount.endsAt) : null;
-
-            if (Number.isFinite(startsAt) && now < startsAt) return false;
-            if (Number.isFinite(endsAt) && now > endsAt) return false;
-
-            return true;
-        })
-        .map((discount) => ({
-            id: discount.id || null,
-            title: discount.title || "Store Discount",
-            description: discount.description || "",
-            productCode: discount.productCode || null,
-            discountType: discount.discountType || null,
-            discountValue:
-                discount.discountValue !== undefined
-                    ? Number(discount.discountValue)
-                    : null,
-            startsAt: discount.startsAt || null,
-            endsAt: discount.endsAt || null,
-        }));
 }
 
 function cleanAndGetPlayerRank(username) {
@@ -186,6 +198,7 @@ router.get("/store-highlights", async (_req, res) => {
 
         const top = topSellingRows.length ? topSellingRows[0] : null;
         const latest = latestBuyerRows.length ? latestBuyerRows[0] : null;
+        const ongoingDiscounts = await listVisibleStorePromotions();
 
         return res.json({
             topSellingRank: top
@@ -207,7 +220,7 @@ router.get("/store-highlights", async (_req, res) => {
                     purchasedAt: latest.paid_at || null,
                 }
                 : null,
-            ongoingDiscounts: getActiveStoreDiscounts(),
+            ongoingDiscounts,
         });
     } catch (error) {
         console.error("❌ /store-highlights Error:", error.message || error);
@@ -222,15 +235,23 @@ async function getCurrentLifetimeRankForUsername(username) {
     return String(playerRow.rank || "").trim() || null;
 }
 
-function computeExpectedAmount({ product, fromLifetimeRank }) {
+async function computeExpectedAmount({ product, fromLifetimeRank }) {
     if (!product) throw new Error("Missing product");
-    if (!isLifetimeRank(product)) return Number(product.amount);
+    if (!isLifetimeRankProduct(product)) return Number(product.amount);
 
     const from = String(fromLifetimeRank || "NONE").trim();
     if (!from || from === "NONE") return Number(product.amount);
 
-    const currentIdx = getLifetimeRankIndex(from);
-    const targetIdx = getLifetimeRankIndex(product.displayName);
+    const lifetimeProducts = await listLifetimeRankProducts({ includeInactive: true });
+
+    const currentIdx = lifetimeProducts.findIndex(
+        (item) => String(item.displayName || "").trim() === from
+    );
+    const targetIdx = lifetimeProducts.findIndex(
+        (item) =>
+            String(item.displayName || "").trim() ===
+            String(product.displayName || "").trim()
+    );
 
     if (currentIdx === -1 || targetIdx === -1) {
         throw new Error("Unsupported rank upgrade");
@@ -239,7 +260,7 @@ function computeExpectedAmount({ product, fromLifetimeRank }) {
         throw new Error("You already have this rank or higher");
     }
 
-    const currentProduct = getProductOrNull(from);
+    const currentProduct = lifetimeProducts[currentIdx] || null;
     if (!currentProduct) {
         throw new Error("Unsupported rank upgrade");
     }
@@ -249,6 +270,100 @@ function computeExpectedAmount({ product, fromLifetimeRank }) {
         throw new Error("Invalid upgrade price");
     }
     return amount;
+}
+
+function normalizeCouponCode(value) {
+    return String(value || "").trim().toUpperCase();
+}
+
+async function buildCheckoutQuote({ username, productCode, mode, couponCode }) {
+    const normalizedUsername = String(username || "").trim();
+    const purchaseMode = mode === "rankup" ? "rankup" : "buy";
+
+    if (!isValidMinecraftUsername(normalizedUsername)) {
+        throw Object.assign(new Error("Invalid Minecraft username"), { statusCode: 400 });
+    }
+
+    const product = await getPurchasableProductByCode(productCode, {
+        includeInactive: false,
+        categories: ["ranks"],
+    });
+
+    if (!product) {
+        throw Object.assign(new Error("Invalid product"), { statusCode: 400 });
+    }
+
+    if (!isRankProduct(product)) {
+        throw Object.assign(
+            new Error("Only rank products are currently supported for checkout."),
+            { statusCode: 400 }
+        );
+    }
+
+    const existing = await cleanAndGetPlayerRank(normalizedUsername);
+
+    if (purchaseMode === "buy" && existing) {
+        throw Object.assign(
+            new Error(`This username already owns a rank (${existing.rank}). Use RankUp.`),
+            { statusCode: 400 }
+        );
+    }
+
+    if (purchaseMode === "rankup") {
+        if (!existing) {
+            throw Object.assign(
+                new Error("No existing rank found. Please buy a rank first."),
+                { statusCode: 400 }
+            );
+        }
+        if (existing.rank_type !== "permanent") {
+            throw Object.assign(
+                new Error("Subscription ranks are not valid for rank upgrades."),
+                { statusCode: 400 }
+            );
+        }
+        if (!isLifetimeRankProduct(product)) {
+            throw Object.assign(
+                new Error("RankUp supports lifetime ranks only."),
+                { statusCode: 400 }
+            );
+        }
+    }
+
+    let baseAmount = Number(product.amount || 0);
+    let fromLifetimeRank = "NONE";
+
+    if (purchaseMode === "rankup") {
+        const current = await getCurrentLifetimeRankForUsername(normalizedUsername);
+        if (current) fromLifetimeRank = current;
+
+        try {
+            baseAmount = await computeExpectedAmount({ product, fromLifetimeRank });
+        } catch (error) {
+            throw Object.assign(new Error(error?.message || "Invalid rank upgrade"), {
+                statusCode: 400,
+            });
+        }
+    }
+
+    const pricing = await evaluateOrderPricing({
+        baseAmount,
+        productCode: product.code,
+        productCategory: product.category,
+        username: normalizedUsername,
+        couponCode: normalizeCouponCode(couponCode),
+    });
+
+    return {
+        username: normalizedUsername,
+        product,
+        purchaseMode,
+        fromLifetimeRank,
+        baseAmount,
+        amount: pricing.finalAmount,
+        currency: product.currency,
+        pricing,
+    };
 }
 
 function getCashfreeBaseUrl() {
@@ -302,65 +417,71 @@ async function cashfreeGetOrder(orderId) {
     return response.data;
 }
 
-// 🛒 Create a purchase order (server-owned pricing)
-router.post("/buy", async (req, res) => {
-    const { username, productCode, mode } = req.body;
-    const purchaseMode = mode === "rankup" ? "rankup" : "buy";
-
-    if (!isValidMinecraftUsername(username)) {
-        return res.status(400).json({ error: "Invalid Minecraft username" });
-    }
-
-    const product = getProductOrNull(productCode);
-    if (!product) {
-        return res.status(400).json({ error: "Invalid product" });
-    }
+// 💬 Quote final amount with active discounts/coupons (no order creation)
+router.post("/quote", async (req, res) => {
+    const { username, productCode, mode, couponCode } = req.body || {};
 
     try {
-        const existing = await cleanAndGetPlayerRank(username);
+        const quote = await buildCheckoutQuote({
+            username,
+            productCode,
+            mode,
+            couponCode,
+        });
 
-        if (purchaseMode === "buy" && existing) {
-            return res.status(400).json({ error: `This username already owns a rank (${existing.rank}). Use RankUp.` });
+        return res.json({
+            productCode: quote.product.code,
+            productName: quote.product.displayName,
+            mode: quote.purchaseMode,
+            currency: quote.currency,
+            baseAmount: quote.baseAmount,
+            amount: quote.amount,
+            discountAmount: quote.pricing.discountAmountTotal,
+            discountAmountUpfront: quote.pricing.discountAmountUpfront,
+            discountAmountAutomatic: quote.pricing.discountAmountAutomatic,
+            discountAmountCoupon: quote.pricing.discountAmountCoupon,
+            upfrontPromotion: quote.pricing.upfrontPromotion,
+            automaticPromotion: quote.pricing.automaticPromotion,
+            couponPromotion: quote.pricing.couponPromotion,
+            couponCodeProvided: quote.pricing.couponCodeProvided,
+            couponCodeApplied: quote.pricing.couponCodeApplied,
+            couponIgnoredReason: quote.pricing.couponIgnoredReason,
+            fromLifetimeRank: quote.fromLifetimeRank,
+        });
+    } catch (error) {
+        const statusCode = Number(error?.statusCode) || 500;
+        if (statusCode >= 400 && statusCode < 500) {
+            return res.status(statusCode).json({ error: error.message || "Invalid quote request" });
         }
 
-        if (purchaseMode === "rankup") {
-            if (!existing) {
-                return res.status(400).json({ error: "No existing rank found. Please buy a rank first." });
-            }
-            if (existing.rank_type !== "permanent") {
-                return res.status(400).json({ error: "Subscription ranks are not valid for rank upgrades." });
-            }
-            if (!isLifetimeRank(product)) {
-                return res.status(400).json({ error: "RankUp supports lifetime ranks only." });
-            }
-        }
+        console.error("❌ /quote Error:", error.response?.data || error.message || error);
+        return res.status(500).json({ error: "Failed to compute quote" });
+    }
+});
 
-        let amount = product.amount;
-        let fromLifetimeRank = "NONE";
+// 🛒 Create a purchase order (server-owned pricing)
+router.post("/buy", async (req, res) => {
+    const { username, productCode, mode, couponCode } = req.body || {};
 
-        if (purchaseMode === "rankup") {
-            const current = await getCurrentLifetimeRankForUsername(username);
-            if (current) fromLifetimeRank = current;
-
-            try {
-                amount = computeExpectedAmount({ product, fromLifetimeRank });
-            } catch (e) {
-                return res.status(400).json({ error: e.message || "Invalid rank upgrade" });
-            }
-        }
+    try {
+        const quote = await buildCheckoutQuote({
+            username,
+            productCode,
+            mode,
+            couponCode,
+        });
 
         const orderId = buildCashfreeOrderId({
-            username,
-            productCode: product.code,
-            fromLifetimeRank,
-            mode: purchaseMode,
+            productId: quote.product.id,
+            fromLifetimeRank: quote.fromLifetimeRank,
+            mode: quote.purchaseMode,
         });
 
         const cf = await cashfreeCreateOrder({
             orderId,
-            amount,
-            currency: product.currency,
-            username,
+            amount: quote.amount,
+            currency: quote.currency,
+            username: quote.username,
         });
 
         if (!cf?.payment_session_id) {
@@ -368,15 +489,41 @@ router.post("/buy", async (req, res) => {
             return res.status(500).json({ error: "Failed to generate payment session" });
         }
 
+        await saveCheckoutOrderContext({
+            orderId,
+            username: quote.username,
+            productId: quote.product.id,
+            productCode: quote.product.code,
+            mode: quote.purchaseMode,
+            fromLifetimeRank: quote.fromLifetimeRank,
+            currency: quote.currency,
+            pricing: quote.pricing,
+        });
+
         // Customer pays; completion is verified server-side via webhook + order fetch.
         return res.json({
             orderId,
             paymentSessionId: cf.payment_session_id,
-            amount,
-            currency: product.currency,
+            amount: quote.amount,
+            currency: quote.currency,
+            baseAmount: quote.baseAmount,
+            discountAmount: quote.pricing.discountAmountTotal,
+            discountAmountUpfront: quote.pricing.discountAmountUpfront,
+            discountAmountAutomatic: quote.pricing.discountAmountAutomatic,
+            discountAmountCoupon: quote.pricing.discountAmountCoupon,
+            upfrontPromotion: quote.pricing.upfrontPromotion,
+            automaticPromotion: quote.pricing.automaticPromotion,
+            couponPromotion: quote.pricing.couponPromotion,
+            couponCodeApplied: quote.pricing.couponCodeApplied,
+            couponIgnoredReason: quote.pricing.couponIgnoredReason,
         });
     } catch (error) {
-        console.error("❌ /buy Error:", error.response?.data || error.message);
+        const statusCode = Number(error?.statusCode) || 500;
+        if (statusCode >= 400 && statusCode < 500) {
+            return res.status(statusCode).json({ error: error.message || "Invalid checkout request" });
+        }
+
+        console.error("❌ /buy Error:", error.response?.data || error.message || error);
         return res.status(500).json({ error: "Payment gateway error" });
     }
 });
@@ -391,22 +538,58 @@ async function applyPaidOrder(orderId) {
 
         if (cfStatus !== "PAID") return { status: "processing" };
 
-        const parsed = parseCashfreeOrderId(orderId);
-        if (!parsed || !isValidMinecraftUsername(parsed.username)) {
+        const orderContext = await getCheckoutOrderContext(orderId);
+        const parsedFromOrderId = parseCashfreeOrderId(orderId) || (await parseLegacyCashfreeOrderId(orderId));
+
+        const parsed = orderContext
+            ? {
+                productId: orderContext.productId,
+                fromLifetimeRank: orderContext.fromLifetimeRank || "NONE",
+                mode: orderContext.mode === "rankup" ? "rankup" : "buy",
+                username: orderContext.username,
+            }
+            : parsedFromOrderId;
+
+        const username = String(
+            orderContext?.username ||
+            parsed?.username ||
+            cfOrder?.customer_details?.customer_id ||
+            ""
+        ).trim();
+
+        if (!parsed || !isValidMinecraftUsername(username)) {
             throw new Error("Invalid order");
         }
 
-        const product = getProductOrNull(parsed.productCode);
+        const product = await getPurchasableProductById(parsed.productId, {
+            includeInactive: true,
+            categories: ["ranks"],
+        });
         if (!product) throw new Error("Invalid product");
 
-        const expectedAmount = computeExpectedAmount({
-            product,
-            fromLifetimeRank: parsed.fromLifetimeRank,
-        });
+        let expectedAmount;
+        let expectedCurrency = String(product.currency || "INR").trim().toUpperCase();
+
+        if (orderContext) {
+            expectedAmount = Number(orderContext.finalAmount);
+            if (!Number.isFinite(expectedAmount) || expectedAmount < 1) {
+                throw new Error("Order mismatch");
+            }
+
+            const contextCurrency = String(orderContext.currency || "").trim().toUpperCase();
+            if (contextCurrency) {
+                expectedCurrency = contextCurrency;
+            }
+        } else {
+            expectedAmount = await computeExpectedAmount({
+                product,
+                fromLifetimeRank: parsed.fromLifetimeRank,
+            });
+        }
 
         const cfAmount = Number(cfOrder?.order_amount);
-        const cfCurrency = cfOrder?.order_currency;
-        if (cfCurrency !== product.currency || cfAmount !== Number(expectedAmount)) {
+        const cfCurrency = String(cfOrder?.order_currency || "").trim().toUpperCase();
+        if (cfCurrency !== expectedCurrency || cfAmount !== Number(expectedAmount)) {
             throw new Error("Order mismatch");
         }
 
@@ -415,7 +598,7 @@ async function applyPaidOrder(orderId) {
         });
 
         const existing = await new Promise((resolve, reject) => {
-            Purchase.getPlayerRank(parsed.username, (err, rows) => {
+            Purchase.getPlayerRank(username, (err, rows) => {
                 if (err) return reject(err);
                 resolve(rows && rows.length ? rows[0] : null);
             });
@@ -427,6 +610,17 @@ async function applyPaidOrder(orderId) {
                 existing.rank === product.displayName &&
                 existing.rank_type === rankTypeForProduct(product)
             ) {
+                if (orderContext) {
+                    await recordPromotionRedemptionFromContext({
+                        orderId,
+                        username,
+                        productCode: product.code,
+                        currency: expectedCurrency,
+                        context: orderContext,
+                    });
+                    await markCheckoutOrderContextCompleted(orderId);
+                }
+
                 completedOrders.add(orderId);
                 return { status: "completed" };
             }
@@ -448,6 +642,17 @@ async function applyPaidOrder(orderId) {
                 existing.rank === product.displayName &&
                 existing.rank_type === rankTypeForProduct(product)
             ) {
+                if (orderContext) {
+                    await recordPromotionRedemptionFromContext({
+                        orderId,
+                        username,
+                        productCode: product.code,
+                        currency: expectedCurrency,
+                        context: orderContext,
+                    });
+                    await markCheckoutOrderContextCompleted(orderId);
+                }
+
                 completedOrders.add(orderId);
                 return { status: "completed" };
             }
@@ -458,22 +663,33 @@ async function applyPaidOrder(orderId) {
             Purchase.createPaymentTransaction(
                 {
                     orderId,
-                    username: parsed.username,
+                    username,
                     productCode: product.code,
                     rank: product.displayName,
                     rankType: rankTypeForProduct(product),
                     amount: Number(expectedAmount),
-                    currency: product.currency,
+                    currency: expectedCurrency,
                     mode: parsed.mode,
                 },
                 (err) => (err ? reject(err) : resolve())
             );
         });
 
+        if (orderContext) {
+            await recordPromotionRedemptionFromContext({
+                orderId,
+                username,
+                productCode: product.code,
+                currency: expectedCurrency,
+                context: orderContext,
+            });
+            await markCheckoutOrderContextCompleted(orderId);
+        }
+
         await new Promise((resolve, reject) => {
             Purchase.upsertPlayerRank(
                 {
-                    username: parsed.username,
+                    username,
                     rank: product.displayName,
                     rankType: rankTypeForProduct(product),
                 },
@@ -482,33 +698,30 @@ async function applyPaidOrder(orderId) {
         });
         console.log("✅ Saved PAID rank to DB", {
             orderId,
-            username: parsed.username,
+            username,
             rank: product.displayName,
             rankType: rankTypeForProduct(product),
         });
 
-        const postActions = await new Promise((resolve, reject) => {
-            Purchase.getPostPurchaseActionsByProduct(product.code, (err, rows) => {
-                if (err) return reject(err);
-                resolve(rows || []);
-            });
-        });
+        const postActions = product?.id
+            ? await getActivePurchaseActionsByProductId(product.id)
+            : [];
 
         const serverActions = postActions
             .map((row) => ({
-                server: String(row.server_name || "").trim(),
-                commands: parseCommandsText(row.commands_text),
+                server: String(row.serverName || "").trim(),
+                commands: parseCommandsText(row.commandsText),
             }))
             .filter((a) => a.server && Array.isArray(a.commands) && a.commands.length > 0);
 
         await dispatchFulfillmentToProxy({
             orderId,
-            username: parsed.username,
+            username,
             productCode: product.code,
             productType: product.type,
             rank: product.displayName,
             amount: Number(expectedAmount),
-            currency: product.currency,
+            currency: expectedCurrency,
             actions: serverActions,
         });
 
@@ -584,6 +797,5 @@ router.post("/cashfree-webhook", async (req, res) => {
         return res.status(500).json({ error: "Internal server error" });
     }
 });
-
 
 module.exports = router;

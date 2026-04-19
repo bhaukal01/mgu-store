@@ -2,25 +2,46 @@ const express = require("express");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
 const authMiddleware = require("../middleware/authMiddleware");
+const adminCmsRoutes = require("./adminCmsRoutes");
 const Admin = require("../models/adminModel");
 const Purchase = require("../models/purchaseModel");
-const {
-    PRODUCTS,
-    getProductOrNull,
-    isValidMinecraftUsername,
-} = require("../config/products");
 const {
     getProxyConnectivityStatus,
     listProxyServers,
     dispatchFulfillmentToProxy,
 } = require("../utils/proxyPluginClient");
+const {
+    getStoreProductById,
+} = require("../services/cmsCatalogService");
+const {
+    ACTION_KIND_PURCHASE,
+    ACTION_KIND_REVOKE,
+    REVOKE_ACTION_PRODUCT_CODE,
+    listPostPurchaseActionsForAdmin,
+    listPostPurchaseProductOptions,
+    createPostPurchaseAction,
+    updatePostPurchaseActionById,
+    deletePostPurchaseActionById,
+    getActivePurchaseActionsByProductId,
+    getActiveRevokeActions,
+} = require("../services/postPurchaseActionService");
+const {
+    isValidMinecraftUsername,
+    getPurchasableProductByCode,
+    listPurchasableProducts,
+} = require("../services/purchasableProductService");
+const {
+    listStorePromotionsForAdmin,
+    createStorePromotion,
+    updateStorePromotionById,
+    deleteStorePromotionById,
+} = require("../services/storePromotionService");
 require("dotenv").config();
 
 const router = express.Router();
 router.use(express.json());
-
-const REVOKE_ACTION_PRODUCT_CODE = "__REVOKE__";
 
 // 🔐 Admin Login
 router.post("/login", (req, res) => {
@@ -43,6 +64,9 @@ router.post("/login", (req, res) => {
         });
     });
 });
+
+// 🧩 Admin CMS CRUD
+router.use("/cms", authMiddleware, adminCmsRoutes);
 
 // 📋 Backward-compatible endpoint (now returns player_ranks rows)
 router.get("/purchases", authMiddleware, (req, res) => {
@@ -74,6 +98,78 @@ router.get("/dashboard/summary", authMiddleware, (req, res) => {
             revenue30d: Number(s.revenue30d || 0),
         });
     });
+});
+
+// 🎯 Discounts and coupons - list
+router.get("/discounts", authMiddleware, async (_req, res) => {
+    try {
+        const rows = await listStorePromotionsForAdmin();
+        return res.json(rows);
+    } catch (error) {
+        console.error("Failed to load discounts:", error.message || error);
+        return res.status(500).json({ error: "Failed to load discounts" });
+    }
+});
+
+// 🎯 Discounts and coupons - create
+router.post("/discounts", authMiddleware, async (req, res) => {
+    try {
+        const created = await createStorePromotion(req.body || {});
+        return res.json(created);
+    } catch (error) {
+        const statusCode = Number(error?.statusCode) || 500;
+        if (statusCode >= 400 && statusCode < 500) {
+            return res.status(statusCode).json({ error: error.message || "Invalid discount payload" });
+        }
+
+        console.error("Failed to create discount:", error.message || error);
+        return res.status(500).json({ error: "Failed to create discount" });
+    }
+});
+
+// 🎯 Discounts and coupons - update
+router.put("/discounts/:id", authMiddleware, async (req, res) => {
+    const id = String(req.params.id || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: "Invalid discount id" });
+    }
+
+    try {
+        const updated = await updateStorePromotionById(id, req.body || {});
+        if (!updated) {
+            return res.status(404).json({ error: "Discount not found" });
+        }
+
+        return res.json(updated);
+    } catch (error) {
+        const statusCode = Number(error?.statusCode) || 500;
+        if (statusCode >= 400 && statusCode < 500) {
+            return res.status(statusCode).json({ error: error.message || "Invalid discount payload" });
+        }
+
+        console.error("Failed to update discount:", error.message || error);
+        return res.status(500).json({ error: "Failed to update discount" });
+    }
+});
+
+// 🎯 Discounts and coupons - delete
+router.delete("/discounts/:id", authMiddleware, async (req, res) => {
+    const id = String(req.params.id || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: "Invalid discount id" });
+    }
+
+    try {
+        const deleted = await deleteStorePromotionById(id);
+        if (!deleted) {
+            return res.status(404).json({ error: "Discount not found" });
+        }
+
+        return res.json({ ok: true, id: deleted.id });
+    } catch (error) {
+        console.error("Failed to delete discount:", error.message || error);
+        return res.status(500).json({ error: "Failed to delete discount" });
+    }
 });
 
 // 📋 Active subscriptions table
@@ -143,21 +239,51 @@ router.get("/proxy/servers", authMiddleware, async (req, res) => {
 });
 
 // ⚙️ Postpurchase actions - list
-router.get("/postpurchase-actions", authMiddleware, (req, res) => {
-    Purchase.getPostPurchaseActions((err, rows) => {
-        if (err) return res.status(500).json({ error: "Database error" });
-        return res.json(rows || []);
-    });
+router.get("/postpurchase-actions", authMiddleware, async (_req, res) => {
+    try {
+        const rows = await listPostPurchaseActionsForAdmin();
+        return res.json(rows);
+    } catch (error) {
+        console.error("Failed to load postpurchase actions:", error.message || error);
+        return res.status(500).json({ error: "Failed to load postpurchase actions" });
+    }
 });
 
-function validateActionInput({ productCode, serverName, commandsText, isRevokeAction }) {
-    if (!isRevokeAction) {
-        const product = getProductOrNull(productCode);
-        if (!product) return "Invalid productCode";
+// ⚙️ Postpurchase actions - product options (CMS-backed)
+router.get("/postpurchase-products", authMiddleware, async (_req, res) => {
+    try {
+        const products = await listPostPurchaseProductOptions();
+        return res.json({ products });
+    } catch (error) {
+        console.error("Failed to load postpurchase product options:", error.message || error);
+        return res.status(500).json({ error: "Failed to load postpurchase product options" });
     }
-    if (!serverName || !String(serverName).trim()) return "serverName is required";
-    if (!commandsText || !String(commandsText).trim()) return "At least one command is required";
-    return null;
+});
+
+async function validateActionInput({ productId, serverName, commandsText, isRevokeAction }) {
+    if (!serverName || !String(serverName).trim()) {
+        return { error: "serverName is required" };
+    }
+
+    if (!commandsText || !String(commandsText).trim()) {
+        return { error: "At least one command is required" };
+    }
+
+    if (isRevokeAction) {
+        return { error: null, product: null };
+    }
+
+    const normalizedProductId = String(productId || "").trim();
+    if (!normalizedProductId || !mongoose.Types.ObjectId.isValid(normalizedProductId)) {
+        return { error: "productId must be a valid CMS product id" };
+    }
+
+    const product = await getStoreProductById(normalizedProductId, { includeInactive: true });
+    if (!product) {
+        return { error: "Selected CMS product does not exist" };
+    }
+
+    return { error: null, product };
 }
 
 function parseCommandsText(commandsText) {
@@ -169,77 +295,134 @@ function parseCommandsText(commandsText) {
 }
 
 // ⚙️ Postpurchase actions - create
-router.post("/postpurchase-actions", authMiddleware, (req, res) => {
-    const { productCode, serverName, commandsText, isActive, isRevokeAction } = req.body || {};
-    const bad = validateActionInput({ productCode, serverName, commandsText, isRevokeAction: !!isRevokeAction });
-    if (bad) return res.status(400).json({ error: bad });
+router.post("/postpurchase-actions", authMiddleware, async (req, res) => {
+    const { productId, serverName, commandsText, isActive, isRevokeAction } = req.body || {};
 
-    const targetProductCode = isRevokeAction
-        ? REVOKE_ACTION_PRODUCT_CODE
-        : String(productCode).trim();
+    let validation;
+    try {
+        validation = await validateActionInput({
+            productId,
+            serverName,
+            commandsText,
+            isRevokeAction: !!isRevokeAction,
+        });
+    } catch (error) {
+        console.error("Postpurchase action validation failed:", error.message || error);
+        return res.status(500).json({ error: "Failed to validate postpurchase action" });
+    }
 
-    Purchase.createPostPurchaseAction(
-        {
-            productCode: targetProductCode,
+    if (validation.error) {
+        return res.status(400).json({ error: validation.error });
+    }
+
+    const actionKind = isRevokeAction ? ACTION_KIND_REVOKE : ACTION_KIND_PURCHASE;
+    const product = validation.product;
+
+    try {
+        const created = await createPostPurchaseAction({
+            actionKind,
+            productId: actionKind === ACTION_KIND_PURCHASE ? product.id : "",
+            productCategory: actionKind === ACTION_KIND_PURCHASE ? product.category : "",
+            productCodeSnapshot: actionKind === ACTION_KIND_PURCHASE ? product.code : REVOKE_ACTION_PRODUCT_CODE,
+            productNameSnapshot: actionKind === ACTION_KIND_PURCHASE ? product.name : "",
             serverName: String(serverName).trim(),
             commandsText: String(commandsText).trim(),
             isActive: isActive !== false,
-        },
-        (err, result) => {
-            if (err) return res.status(500).json({ error: "Database error" });
-            return res.json({ ok: true, id: result?.insertId || null });
-        }
-    );
+        });
+
+        return res.json({ ok: true, id: created?.id || null });
+    } catch (error) {
+        console.error("Failed to create postpurchase action:", error.message || error);
+        return res.status(500).json({ error: "Failed to create postpurchase action" });
+    }
 });
 
 // ⚙️ Postpurchase actions - update
-router.put("/postpurchase-actions/:id", authMiddleware, (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
+router.put("/postpurchase-actions/:id", authMiddleware, async (req, res) => {
+    const id = String(req.params.id || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).json({ error: "Invalid action id" });
     }
 
-    const { productCode, serverName, commandsText, isActive, isRevokeAction } = req.body || {};
-    const bad = validateActionInput({ productCode, serverName, commandsText, isRevokeAction: !!isRevokeAction });
-    if (bad) return res.status(400).json({ error: bad });
+    const { productId, serverName, commandsText, isActive, isRevokeAction } = req.body || {};
 
-    const targetProductCode = isRevokeAction
-        ? REVOKE_ACTION_PRODUCT_CODE
-        : String(productCode).trim();
+    let validation;
+    try {
+        validation = await validateActionInput({
+            productId,
+            serverName,
+            commandsText,
+            isRevokeAction: !!isRevokeAction,
+        });
+    } catch (error) {
+        console.error("Postpurchase action validation failed:", error.message || error);
+        return res.status(500).json({ error: "Failed to validate postpurchase action" });
+    }
 
-    Purchase.updatePostPurchaseAction(
-        {
-            id,
-            productCode: targetProductCode,
+    if (validation.error) {
+        return res.status(400).json({ error: validation.error });
+    }
+
+    const actionKind = isRevokeAction ? ACTION_KIND_REVOKE : ACTION_KIND_PURCHASE;
+    const product = validation.product;
+
+    try {
+        const updated = await updatePostPurchaseActionById(id, {
+            actionKind,
+            productId: actionKind === ACTION_KIND_PURCHASE ? product.id : "",
+            productCategory: actionKind === ACTION_KIND_PURCHASE ? product.category : "",
+            productCodeSnapshot: actionKind === ACTION_KIND_PURCHASE ? product.code : REVOKE_ACTION_PRODUCT_CODE,
+            productNameSnapshot: actionKind === ACTION_KIND_PURCHASE ? product.name : "",
             serverName: String(serverName).trim(),
             commandsText: String(commandsText).trim(),
             isActive: isActive !== false,
-        },
-        (err) => {
-            if (err) return res.status(500).json({ error: "Database error" });
-            return res.json({ ok: true });
+        });
+
+        if (!updated) {
+            return res.status(404).json({ error: "Action not found" });
         }
-    );
+
+        return res.json({ ok: true });
+    } catch (error) {
+        console.error("Failed to update postpurchase action:", error.message || error);
+        return res.status(500).json({ error: "Failed to update postpurchase action" });
+    }
 });
 
 // ⚙️ Postpurchase actions - delete
-router.delete("/postpurchase-actions/:id", authMiddleware, (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
+router.delete("/postpurchase-actions/:id", authMiddleware, async (req, res) => {
+    const id = String(req.params.id || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).json({ error: "Invalid action id" });
     }
 
-    Purchase.deletePostPurchaseAction(id, (err) => {
-        if (err) return res.status(500).json({ error: "Database error" });
+    try {
+        const deleted = await deletePostPurchaseActionById(id);
+        if (!deleted) {
+            return res.status(404).json({ error: "Action not found" });
+        }
         return res.json({ ok: true });
-    });
+    } catch (error) {
+        console.error("Failed to delete postpurchase action:", error.message || error);
+        return res.status(500).json({ error: "Failed to delete postpurchase action" });
+    }
 });
 
 // 🎁 Manual grant
-router.post("/manual/grant", authMiddleware, (req, res) => {
+router.post("/manual/grant", authMiddleware, async (req, res) => {
     const { username, productCode } = req.body || {};
     const u = String(username || "").trim();
-    const product = getProductOrNull(productCode);
+
+    let product;
+    try {
+        product = await getPurchasableProductByCode(productCode, {
+            includeInactive: true,
+            categories: ["ranks"],
+        });
+    } catch (error) {
+        console.error("Failed to resolve manual grant product:", error.message || error);
+        return res.status(500).json({ error: "Failed to resolve product" });
+    }
 
     if (!isValidMinecraftUsername(u)) {
         return res.status(400).json({ error: "Invalid Minecraft username" });
@@ -269,17 +452,14 @@ router.post("/manual/grant", authMiddleware, (req, res) => {
                 if (err) return res.status(500).json({ error: "Database error" });
 
                 try {
-                    const postActions = await new Promise((resolve, reject) => {
-                        Purchase.getPostPurchaseActionsByProduct(product.code, (e, rows) => {
-                            if (e) return reject(e);
-                            resolve(rows || []);
-                        });
-                    });
+                    const postActions = product?.id
+                        ? await getActivePurchaseActionsByProductId(product.id)
+                        : [];
 
                     const actions = postActions
                         .map((row) => ({
-                            server: String(row.server_name || "").trim(),
-                            commands: parseCommandsText(row.commands_text),
+                            server: String(row.serverName || "").trim(),
+                            commands: parseCommandsText(row.commandsText),
                         }))
                         .filter((a) => a.server && a.commands.length > 0);
 
@@ -317,9 +497,14 @@ router.post("/manual/grant", authMiddleware, (req, res) => {
 router.post("/manual/revoke", authMiddleware, (req, res) => {
     const { username, revokeActionId, applyRevokeActions } = req.body || {};
     const u = String(username || "").trim();
+    const selectedRevokeActionId = String(revokeActionId || "").trim();
 
     if (!isValidMinecraftUsername(u)) {
         return res.status(400).json({ error: "Invalid Minecraft username" });
+    }
+
+    if (selectedRevokeActionId && !mongoose.Types.ObjectId.isValid(selectedRevokeActionId)) {
+        return res.status(400).json({ error: "Invalid revoke action id" });
     }
 
     Purchase.getPlayerRank(u, (rankErr, rankRows) => {
@@ -336,21 +521,14 @@ router.post("/manual/revoke", authMiddleware, (req, res) => {
             }
 
             try {
-                const revokeRows = await new Promise((resolve, reject) => {
-                    Purchase.getPostPurchaseActionsByProduct(REVOKE_ACTION_PRODUCT_CODE, (e, rows) => {
-                        if (e) return reject(e);
-                        resolve(rows || []);
-                    });
+                const revokeRows = await getActiveRevokeActions({
+                    actionId: selectedRevokeActionId || null,
                 });
 
-                const selectedRows = Number.isFinite(Number(revokeActionId)) && Number(revokeActionId) > 0
-                    ? revokeRows.filter((r) => Number(r.id) === Number(revokeActionId))
-                    : revokeRows;
-
-                const actions = selectedRows
+                const actions = revokeRows
                     .map((row) => ({
-                        server: String(row.server_name || "").trim(),
-                        commands: parseCommandsText(row.commands_text),
+                        server: String(row.serverName || "").trim(),
+                        commands: parseCommandsText(row.commandsText),
                     }))
                     .filter((a) => a.server && a.commands.length > 0);
 
@@ -386,8 +564,17 @@ router.post("/manual/revoke", authMiddleware, (req, res) => {
 });
 
 // Utility for dashboard dropdowns
-router.get("/products", authMiddleware, (req, res) => {
-    return res.json({ products: Object.values(PRODUCTS) });
+router.get("/products", authMiddleware, async (_req, res) => {
+    try {
+        const products = await listPurchasableProducts({
+            includeInactive: true,
+            categories: ["ranks"],
+        });
+        return res.json({ products });
+    } catch (error) {
+        console.error("Failed to load product options:", error.message || error);
+        return res.status(500).json({ error: "Failed to load products" });
+    }
 });
 
 module.exports = router;
