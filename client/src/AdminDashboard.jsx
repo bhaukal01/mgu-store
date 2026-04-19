@@ -10,6 +10,10 @@ import {
   Checkbox,
   Chip,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   FormControlLabel,
   Grid,
@@ -29,7 +33,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { LogOut, RefreshCw, Search, Server } from "lucide-react";
+import { LogOut, RefreshCw, Search, Server, Upload } from "lucide-react";
 
 const REVOKE_ACTION_PRODUCT_CODE = "__REVOKE__";
 
@@ -47,6 +51,140 @@ const tableContainerSx = {
   },
 };
 
+const promotionsTableSx = {
+  border: "1px solid",
+  borderColor: "divider",
+  borderRadius: 2,
+  backgroundColor: "background.paper",
+  overflowX: "auto",
+  "& .MuiTable-root": {
+    minWidth: 1180,
+    tableLayout: "fixed",
+  },
+  "& .MuiTableHead-root .MuiTableCell-root": {
+    backgroundColor: "#F8FAFC",
+    color: "text.secondary",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    borderBottom: "1px solid",
+    borderColor: "divider",
+    py: 1.2,
+  },
+  "& .MuiTableBody-root .MuiTableCell-root": {
+    py: 1.3,
+    borderBottom: "1px dashed",
+    borderColor: "#E2E8F0",
+    verticalAlign: "top",
+  },
+  "& .MuiTableBody-root .MuiTableRow-root:last-of-type .MuiTableCell-root": {
+    borderBottom: "none",
+  },
+  "& .MuiTableBody-root .MuiTableRow-root:hover .MuiTableCell-root": {
+    backgroundColor: "#F8FAFC",
+  },
+};
+
+const CMS_CATEGORIES = [
+  { value: "ranks", label: "Ranks" },
+  { value: "crates", label: "Crates" },
+  { value: "packages", label: "Packages" },
+];
+
+const createCmsForm = (category = "ranks") => {
+  const base = {
+    id: "",
+    code: "",
+    name: "",
+    description: "",
+    price: "",
+    currency: "INR",
+    img: "",
+    perksText: "",
+    displayOrder: "0",
+    isActive: true,
+    rankKind: "lifetime",
+    billingInterval: "none",
+    status: "planned",
+    info: "",
+    crateIcon: "",
+    inventoryImage: "",
+    badge: "",
+    categoryTag: "",
+    packageIcon: "",
+  };
+
+  if (category === "ranks") {
+    return {
+      ...base,
+      rankKind: "lifetime",
+      billingInterval: "none",
+    };
+  }
+
+  if (category === "crates") {
+    return {
+      ...base,
+      status: "planned",
+      info: "",
+      crateIcon: "",
+      inventoryImage: "",
+    };
+  }
+
+  if (category === "packages") {
+    return {
+      ...base,
+      badge: "",
+      categoryTag: "",
+      packageIcon: "",
+    };
+  }
+
+  return base;
+};
+
+const createPromotionForm = () => ({
+  id: "",
+  title: "",
+  description: "",
+  kind: "upfront",
+  code: "",
+  productCodes: [],
+  productCategories: [],
+  discountType: "percent",
+  discountValue: "",
+  minOrderAmount: "",
+  maxDiscountAmount: "",
+  usageLimit: "",
+  usagePerUser: "",
+  stackable: false,
+  showOnStorefront: false,
+  startsAt: "",
+  endsAt: "",
+  displayOrder: "0",
+  isActive: true,
+});
+
+const toDateTimeLocalInput = (value) => {
+  if (!value) return "";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 const AdminDashboard = () => {
   const [summary, setSummary] = useState({
     todayRevenue: 0,
@@ -60,6 +198,7 @@ const AdminDashboard = () => {
   const [proxyStatus, setProxyStatus] = useState({ status: "checking" });
   const [proxyServers, setProxyServers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [actionProducts, setActionProducts] = useState([]);
   const [actions, setActions] = useState([]);
   const [searchInput, setSearchInput] = useState("");
   const [searchRows, setSearchRows] = useState([]);
@@ -72,14 +211,31 @@ const AdminDashboard = () => {
     applyRevokeActions: true,
     revokeActionId: "",
   });
+
   const [actionForm, setActionForm] = useState({
     id: null,
-    productCode: "",
+    productId: "",
     serverName: "",
     commandsText: "",
     isActive: true,
     isRevokeAction: false,
   });
+
+  const [cmsCategory, setCmsCategory] = useState("ranks");
+  const [cmsRows, setCmsRows] = useState([]);
+  const [cmsLoading, setCmsLoading] = useState(false);
+  const [cmsUploadingImage, setCmsUploadingImage] = useState(false);
+  const [imageKitConfigured, setImageKitConfigured] = useState(false);
+  const [cmsForm, setCmsForm] = useState(() => createCmsForm("ranks"));
+  const [promotions, setPromotions] = useState([]);
+  const [promotionForm, setPromotionForm] = useState(() =>
+    createPromotionForm(),
+  );
+  const [promotionSaving, setPromotionSaving] = useState(false);
+  const [promotionScopeOpen, setPromotionScopeOpen] = useState(false);
+  const [promotionAnalyticsOpen, setPromotionAnalyticsOpen] = useState(false);
+  const [promotionAnalyticsPromotion, setPromotionAnalyticsPromotion] =
+    useState(null);
 
   const [tab, setTab] = useState("overview");
 
@@ -94,8 +250,21 @@ const AdminDashboard = () => {
   );
 
   const revokeActions = useMemo(
-    () => actions.filter((a) => a.product_code === REVOKE_ACTION_PRODUCT_CODE),
+    () =>
+      actions.filter(
+        (a) =>
+          a.action_kind === "revoke" ||
+          a.is_revoke_action ||
+          a.product_code === REVOKE_ACTION_PRODUCT_CODE,
+      ),
     [actions],
+  );
+
+  const cmsCategoryLabel =
+    CMS_CATEGORIES.find((item) => item.value === cmsCategory)?.label ||
+    "Catalog";
+  const cmsCanUploadImage = ["ranks", "crates", "packages"].includes(
+    cmsCategory,
   );
 
   const setNoticeMessage = (message, severity = "info") => {
@@ -121,6 +290,283 @@ const AdminDashboard = () => {
     return { label: rankType || "Unknown", color: "default" };
   };
 
+  const promotionDiscountLabel = (promotion) => {
+    if (!promotion) return "-";
+
+    const value = Number(promotion.discountValue || 0);
+    if (promotion.discountType === "fixed") {
+      return `INR ${value.toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })} off`;
+    }
+
+    return `${value}% off`;
+  };
+
+  const promotionWindowLabel = (promotion) => {
+    const startsAt = promotion?.startsAt ? new Date(promotion.startsAt) : null;
+    const endsAt = promotion?.endsAt ? new Date(promotion.endsAt) : null;
+
+    if (!startsAt && !endsAt) return "Always";
+
+    const formatDate = (date) => {
+      if (!date || Number.isNaN(date.getTime())) return "-";
+      return date.toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    };
+
+    return `${formatDate(startsAt)} to ${formatDate(endsAt)}`;
+  };
+
+  const categoryLabelByValue = useMemo(() => {
+    return CMS_CATEGORIES.reduce((acc, item) => {
+      acc[item.value] = item.label;
+      return acc;
+    }, {});
+  }, []);
+
+  const promotionScopeSummary = (promotion) => {
+    const productCodes = Array.isArray(promotion?.productCodes)
+      ? promotion.productCodes
+      : [];
+    const productCategories = Array.isArray(promotion?.productCategories)
+      ? promotion.productCategories
+      : [];
+
+    if (!productCodes.length && !productCategories.length) {
+      return "All products";
+    }
+
+    const categoryLabel = productCategories
+      .map((value) => categoryLabelByValue[value] || value)
+      .join(", ");
+
+    if (productCodes.length && categoryLabel) {
+      return `${categoryLabel} + ${productCodes.length} specific product${productCodes.length === 1 ? "" : "s"}`;
+    }
+
+    if (categoryLabel) {
+      return categoryLabel;
+    }
+
+    return `${productCodes.length} product${productCodes.length === 1 ? "" : "s"}`;
+  };
+
+  const analyticsDateLabel = (value) => {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "-";
+    return parsed.toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
+  const percentLabel = (value, digits = 1) => {
+    if (!Number.isFinite(Number(value))) return "-";
+    return `${Number(value).toFixed(digits)}%`;
+  };
+
+  const buildPromotionAnalyticsRows = (promotion) => {
+    if (!promotion) return [];
+
+    const totalUsed = Number(promotion.totalUsed || 0);
+    const uniqueUsers = Number(promotion.uniqueUsersCount || 0);
+    const repeatUses = Math.max(totalUsed - uniqueUsers, 0);
+    const usageLimit =
+      promotion.usageLimit === null || promotion.usageLimit === undefined
+        ? null
+        : Number(promotion.usageLimit);
+    const totalRevenueGenerated = Number(promotion.totalRevenueGenerated || 0);
+    const totalBaseRevenue = Number(promotion.totalBaseRevenue || 0);
+    const totalDiscountGiven = Number(promotion.totalDiscountGiven || 0);
+    const averageOrderValue = Number(promotion.averageOrderValue || 0);
+    const avgDiscountPerUse =
+      totalUsed > 0 ? totalDiscountGiven / totalUsed : 0;
+    const effectiveDiscountRate =
+      totalBaseRevenue > 0 ? (totalDiscountGiven / totalBaseRevenue) * 100 : 0;
+    const usageUtilization =
+      usageLimit && usageLimit > 0 ? (totalUsed / usageLimit) * 100 : null;
+    const repeatUseRate = totalUsed > 0 ? (repeatUses / totalUsed) * 100 : 0;
+    const productCodes = Array.isArray(promotion.productCodes)
+      ? promotion.productCodes
+      : [];
+    const productCategories = Array.isArray(promotion.productCategories)
+      ? promotion.productCategories
+      : [];
+
+    const rows = [
+      {
+        category: "Campaign",
+        metric: "Promotion Type",
+        value: promotion.kind === "coupon" ? "Coupon" : "Upfront Discount",
+      },
+      {
+        category: "Campaign",
+        metric: "Status",
+        value: promotion.isActive ? "Active" : "Inactive",
+      },
+      {
+        category: "Campaign",
+        metric: "Campaign Window",
+        value: promotionWindowLabel(promotion),
+      },
+      {
+        category: "Campaign",
+        metric: "Homepage Visibility",
+        value: promotion.showOnStorefront ? "Visible" : "Hidden",
+      },
+      {
+        category: "Scope",
+        metric: "Scope Summary",
+        value: promotionScopeSummary(promotion),
+      },
+      {
+        category: "Scope",
+        metric: "Category Targets",
+        value: productCategories.length
+          ? productCategories
+              .map((entry) => categoryLabelByValue[entry] || entry)
+              .join(", ")
+          : "All categories",
+      },
+      {
+        category: "Scope",
+        metric: "Product Overrides",
+        value: productCodes.length ? `${productCodes.length} selected` : "None",
+      },
+      {
+        category: "Usage",
+        metric: "Total Redemptions",
+        value: totalUsed.toLocaleString("en-IN"),
+      },
+      {
+        category: "Usage",
+        metric: "Usage Limit",
+        value:
+          usageLimit && usageLimit > 0
+            ? usageLimit.toLocaleString("en-IN")
+            : "Unlimited",
+      },
+      {
+        category: "Usage",
+        metric: "Usage Utilization",
+        value:
+          usageUtilization === null
+            ? "Unlimited"
+            : percentLabel(usageUtilization),
+      },
+      {
+        category: "Usage",
+        metric: "Remaining Uses",
+        value:
+          usageLimit && usageLimit > 0
+            ? Math.max(usageLimit - totalUsed, 0).toLocaleString("en-IN")
+            : "Unlimited",
+      },
+      {
+        category: "Audience",
+        metric: "Unique Users",
+        value: uniqueUsers.toLocaleString("en-IN"),
+      },
+      {
+        category: "Audience",
+        metric: "Repeat Redemptions",
+        value: repeatUses.toLocaleString("en-IN"),
+      },
+      {
+        category: "Audience",
+        metric: "Repeat Use Rate",
+        value: totalUsed > 0 ? percentLabel(repeatUseRate) : "-",
+      },
+      {
+        category: "Revenue",
+        metric: "Gross Revenue (Before Discount)",
+        value: money(totalBaseRevenue),
+      },
+      {
+        category: "Revenue",
+        metric: "Net Revenue (After Discount)",
+        value: money(totalRevenueGenerated),
+      },
+      {
+        category: "Revenue",
+        metric: "Total Discount Given",
+        value: money(totalDiscountGiven),
+      },
+      {
+        category: "Revenue",
+        metric: "Average Order Value",
+        value: money(averageOrderValue),
+      },
+      {
+        category: "Revenue",
+        metric: "Avg Discount Per Redemption",
+        value: money(avgDiscountPerUse),
+      },
+      {
+        category: "Revenue",
+        metric: "Effective Discount Rate",
+        value:
+          totalBaseRevenue > 0 ? percentLabel(effectiveDiscountRate, 2) : "-",
+      },
+      {
+        category: "Timeline",
+        metric: "First Redemption",
+        value: analyticsDateLabel(promotion.firstRedeemedAt),
+      },
+      {
+        category: "Timeline",
+        metric: "Last Redemption",
+        value: analyticsDateLabel(promotion.lastRedeemedAt),
+      },
+    ];
+
+    if (promotion.kind === "coupon") {
+      rows.splice(
+        4,
+        0,
+        {
+          category: "Campaign",
+          metric: "Coupon Code",
+          value: promotion.code || "-",
+        },
+        {
+          category: "Campaign",
+          metric: "Usage Per User",
+          value:
+            promotion.usagePerUser && Number(promotion.usagePerUser) > 0
+              ? String(promotion.usagePerUser)
+              : "Unlimited",
+        },
+        {
+          category: "Campaign",
+          metric: "Stackable With Upfront",
+          value: promotion.stackable ? "Yes" : "No",
+        },
+      );
+    }
+
+    return rows;
+  };
+
+  const refreshPostPurchaseLinkData = async () => {
+    const [actionProductRes, actionRes] = await Promise.all([
+      axios.get(`${apiBaseUrl}/api/admin/postpurchase-products`, {
+        headers: authHeaders,
+      }),
+      axios.get(`${apiBaseUrl}/api/admin/postpurchase-actions`, {
+        headers: authHeaders,
+      }),
+    ]);
+
+    setActionProducts(actionProductRes.data?.products || []);
+    setActions(actionRes.data || []);
+  };
+
   const loadDashboard = async ({ preserveNotice = false } = {}) => {
     setBusy(true);
     if (!preserveNotice) {
@@ -135,7 +581,9 @@ const AdminDashboard = () => {
         permanentRes,
         activePermanentRes,
         productRes,
+        actionProductRes,
         actionRes,
+        discountRes,
       ] = await Promise.all([
         axios.get(`${apiBaseUrl}/api/admin/dashboard/summary`, {
           headers: authHeaders,
@@ -155,7 +603,13 @@ const AdminDashboard = () => {
         axios.get(`${apiBaseUrl}/api/admin/products`, {
           headers: authHeaders,
         }),
+        axios.get(`${apiBaseUrl}/api/admin/postpurchase-products`, {
+          headers: authHeaders,
+        }),
         axios.get(`${apiBaseUrl}/api/admin/postpurchase-actions`, {
+          headers: authHeaders,
+        }),
+        axios.get(`${apiBaseUrl}/api/admin/discounts`, {
           headers: authHeaders,
         }),
       ]);
@@ -166,7 +620,9 @@ const AdminDashboard = () => {
       setPermanentPurchases(permanentRes.data || []);
       setActivePermanentRanks(activePermanentRes.data || []);
       setProducts(productRes.data?.products || []);
+      setActionProducts(actionProductRes.data?.products || []);
       setActions(actionRes.data || []);
+      setPromotions(discountRes.data || []);
 
       try {
         const [statusRes, serverRes] = await Promise.all([
@@ -207,6 +663,468 @@ const AdminDashboard = () => {
 
     loadDashboard();
   }, [navigate, token]);
+
+  const loadCmsCategory = async (
+    category = cmsCategory,
+    { preserveNotice = true } = {},
+  ) => {
+    setCmsLoading(true);
+
+    try {
+      const [{ data: rows }, { data: imageKitStatus }] = await Promise.all([
+        axios.get(`${apiBaseUrl}/api/admin/cms/${category}`, {
+          headers: authHeaders,
+          params: { includeInactive: true },
+        }),
+        axios.get(`${apiBaseUrl}/api/admin/cms/upload-image/status`, {
+          headers: authHeaders,
+        }),
+      ]);
+
+      setCmsRows(Array.isArray(rows) ? rows : []);
+      setImageKitConfigured(Boolean(imageKitStatus?.configured));
+
+      if (!preserveNotice) {
+        setNotice({ message: "", severity: "info" });
+      }
+    } catch (error) {
+      if (error?.response?.status === 401) {
+        navigate("/admin");
+        return;
+      }
+
+      setNoticeMessage(
+        error?.response?.data?.error || "Failed to load CMS category",
+        "error",
+      );
+    } finally {
+      setCmsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    loadCmsCategory(cmsCategory, { preserveNotice: true });
+  }, [token, cmsCategory]);
+
+  const resetCmsForm = (category = cmsCategory) => {
+    setCmsForm(createCmsForm(category));
+  };
+
+  const buildCmsPayload = () => {
+    const payload = {
+      code: cmsForm.code.trim(),
+      name: cmsForm.name.trim(),
+      description: cmsForm.description.trim(),
+      price: Number(cmsForm.price),
+      currency: cmsForm.currency.trim() || "INR",
+      img: cmsForm.img.trim(),
+      perks: cmsForm.perksText
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+      displayOrder: Number.parseInt(cmsForm.displayOrder || "0", 10) || 0,
+      isActive: Boolean(cmsForm.isActive),
+    };
+
+    if (cmsCategory === "ranks") {
+      payload.rankKind = cmsForm.rankKind;
+      payload.billingInterval = cmsForm.billingInterval;
+    }
+
+    if (cmsCategory === "crates") {
+      payload.status = cmsForm.status;
+      payload.info = cmsForm.info.trim();
+      payload.crateIcon = cmsForm.crateIcon.trim();
+      payload.inventoryImage = cmsForm.inventoryImage.trim();
+    }
+
+    if (cmsCategory === "packages") {
+      payload.badge = cmsForm.badge.trim();
+      payload.categoryTag = cmsForm.categoryTag.trim();
+      payload.packageIcon = cmsForm.packageIcon.trim();
+    }
+
+    return payload;
+  };
+
+  const saveCmsProduct = async () => {
+    if (!cmsForm.code.trim() || !cmsForm.name.trim()) {
+      setNoticeMessage("Code and name are required", "warning");
+      return;
+    }
+
+    if (!Number.isFinite(Number(cmsForm.price)) || Number(cmsForm.price) < 0) {
+      setNoticeMessage("Price must be a non-negative number", "warning");
+      return;
+    }
+
+    const payload = buildCmsPayload();
+
+    try {
+      if (cmsForm.id) {
+        await axios.put(
+          `${apiBaseUrl}/api/admin/cms/${cmsCategory}/${cmsForm.id}`,
+          payload,
+          { headers: authHeaders },
+        );
+        setNoticeMessage(`${cmsCategoryLabel} updated`, "success");
+      } else {
+        await axios.post(
+          `${apiBaseUrl}/api/admin/cms/${cmsCategory}`,
+          payload,
+          {
+            headers: authHeaders,
+          },
+        );
+        setNoticeMessage(`${cmsCategoryLabel} created`, "success");
+      }
+
+      resetCmsForm(cmsCategory);
+      await loadCmsCategory(cmsCategory, { preserveNotice: true });
+      await refreshPostPurchaseLinkData();
+    } catch (error) {
+      setNoticeMessage(
+        error?.response?.data?.error || "Failed to save CMS product",
+        "error",
+      );
+    }
+  };
+
+  const mapCmsRowToForm = (row) => ({
+    id: row.id || "",
+    code: row.code || "",
+    name: row.name || "",
+    description: row.description || "",
+    price: row.price !== undefined ? String(row.price) : "",
+    currency: row.currency || "INR",
+    img: row.img || "",
+    perksText: Array.isArray(row.perks) ? row.perks.join("\n") : "",
+    displayOrder:
+      row.displayOrder !== undefined ? String(row.displayOrder) : "0",
+    isActive: row.isActive !== false,
+    rankKind: row.rankKind || "lifetime",
+    billingInterval: row.billingInterval || "none",
+    status: row.status || "planned",
+    info: row.info || "",
+    crateIcon: row.crateIcon || "",
+    inventoryImage: row.inventoryImage || "",
+    badge: row.badge || "",
+    categoryTag: row.categoryTag || "",
+    packageIcon: row.packageIcon || "",
+  });
+
+  const editCmsProduct = (row) => {
+    setCmsForm(mapCmsRowToForm(row));
+    setTab("catalog");
+  };
+
+  const deleteCmsProduct = async (row) => {
+    const ok = window.confirm(`Delete ${row.name}? This cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      await axios.delete(
+        `${apiBaseUrl}/api/admin/cms/${cmsCategory}/${row.id}`,
+        {
+          headers: authHeaders,
+        },
+      );
+      setNoticeMessage(`${cmsCategoryLabel} deleted`, "info");
+      await loadCmsCategory(cmsCategory, { preserveNotice: true });
+      await refreshPostPurchaseLinkData();
+    } catch (error) {
+      setNoticeMessage(
+        error?.response?.data?.error || "Failed to delete CMS product",
+        "error",
+      );
+    }
+  };
+
+  const resetPromotionForm = () => {
+    setPromotionForm(createPromotionForm());
+    setPromotionScopeOpen(false);
+  };
+
+  const mapPromotionRowToForm = (row) => ({
+    id: row.id || "",
+    title: row.title || "",
+    description: row.description || "",
+    kind: row.kind === "automatic" ? "upfront" : row.kind || "upfront",
+    code: row.code || "",
+    productCodes: Array.isArray(row.productCodes)
+      ? row.productCodes
+      : row.productCode
+        ? [row.productCode]
+        : [],
+    productCategories: Array.isArray(row.productCategories)
+      ? row.productCategories
+      : [],
+    discountType: row.discountType || "percent",
+    discountValue:
+      row.discountValue !== undefined && row.discountValue !== null
+        ? String(row.discountValue)
+        : "",
+    minOrderAmount:
+      row.minOrderAmount !== undefined && row.minOrderAmount !== null
+        ? String(row.minOrderAmount)
+        : "0",
+    maxDiscountAmount:
+      row.maxDiscountAmount !== undefined && row.maxDiscountAmount !== null
+        ? String(row.maxDiscountAmount)
+        : "",
+    usageLimit:
+      row.usageLimit !== undefined && row.usageLimit !== null
+        ? String(row.usageLimit)
+        : "",
+    usagePerUser:
+      row.usagePerUser !== undefined && row.usagePerUser !== null
+        ? String(row.usagePerUser)
+        : "",
+    stackable: row.stackable === true,
+    showOnStorefront: row.showOnStorefront === true,
+    startsAt: toDateTimeLocalInput(row.startsAt),
+    endsAt: toDateTimeLocalInput(row.endsAt),
+    displayOrder:
+      row.displayOrder !== undefined && row.displayOrder !== null
+        ? String(row.displayOrder)
+        : "0",
+    isActive: row.isActive !== false,
+  });
+
+  const buildPromotionPayload = () => {
+    const toNullableNumber = (value) => {
+      if (value === "" || value === null || value === undefined) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const toNullableInteger = (value) => {
+      if (value === "" || value === null || value === undefined) return null;
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    return {
+      title: promotionForm.title.trim(),
+      description: promotionForm.description.trim(),
+      kind: promotionForm.kind,
+      code: promotionForm.code.trim().toUpperCase(),
+      productCodes: promotionForm.productCodes,
+      productCategories: promotionForm.productCategories,
+      discountType: promotionForm.discountType,
+      discountValue: Number(promotionForm.discountValue),
+      minOrderAmount:
+        promotionForm.kind === "coupon"
+          ? Number(promotionForm.minOrderAmount || 0)
+          : 0,
+      maxDiscountAmount:
+        promotionForm.kind === "coupon"
+          ? toNullableNumber(promotionForm.maxDiscountAmount)
+          : null,
+      usageLimit: toNullableInteger(promotionForm.usageLimit),
+      usagePerUser: toNullableInteger(promotionForm.usagePerUser),
+      stackable: promotionForm.stackable,
+      showOnStorefront: promotionForm.showOnStorefront,
+      startsAt: promotionForm.startsAt
+        ? new Date(promotionForm.startsAt).toISOString()
+        : null,
+      endsAt: promotionForm.endsAt
+        ? new Date(promotionForm.endsAt).toISOString()
+        : null,
+      displayOrder: Number.parseInt(promotionForm.displayOrder || "0", 10) || 0,
+      isActive: promotionForm.isActive,
+    };
+  };
+
+  const actionProductsByCategory = useMemo(() => {
+    const map = {
+      ranks: [],
+      crates: [],
+      packages: [],
+    };
+
+    actionProducts.forEach((product) => {
+      const category = String(product.category || "").toLowerCase();
+      if (!map[category]) return;
+      map[category].push(product);
+    });
+
+    return map;
+  }, [actionProducts]);
+
+  const clearPromotionScope = () => {
+    setPromotionForm((prev) => ({
+      ...prev,
+      productCodes: [],
+      productCategories: [],
+    }));
+  };
+
+  const togglePromotionCategoryScope = (category) => {
+    setPromotionForm((prev) => {
+      const selected = new Set(prev.productCategories || []);
+      if (selected.has(category)) {
+        selected.delete(category);
+      } else {
+        selected.add(category);
+      }
+
+      return {
+        ...prev,
+        productCategories: [...selected],
+      };
+    });
+  };
+
+  const togglePromotionProductScope = (productCode) => {
+    setPromotionForm((prev) => {
+      const selected = new Set(prev.productCodes || []);
+      if (selected.has(productCode)) {
+        selected.delete(productCode);
+      } else {
+        selected.add(productCode);
+      }
+
+      return {
+        ...prev,
+        productCodes: [...selected],
+      };
+    });
+  };
+
+  const editPromotion = (row) => {
+    setPromotionForm(mapPromotionRowToForm(row));
+    setTab("discounts");
+  };
+
+  const openPromotionAnalytics = (promotion) => {
+    setPromotionAnalyticsPromotion(promotion);
+    setPromotionAnalyticsOpen(true);
+  };
+
+  const closePromotionAnalytics = () => {
+    setPromotionAnalyticsOpen(false);
+    setPromotionAnalyticsPromotion(null);
+  };
+
+  const savePromotion = async () => {
+    if (!promotionForm.title.trim()) {
+      setNoticeMessage("Promotion title is required", "warning");
+      return;
+    }
+
+    if (!Number.isFinite(Number(promotionForm.discountValue))) {
+      setNoticeMessage("Discount value must be a valid number", "warning");
+      return;
+    }
+
+    if (promotionForm.kind === "coupon" && !promotionForm.code.trim()) {
+      setNoticeMessage(
+        "Coupon code is required for coupon promotions",
+        "warning",
+      );
+      return;
+    }
+
+    setPromotionSaving(true);
+    try {
+      const payload = buildPromotionPayload();
+
+      if (promotionForm.id) {
+        await axios.put(
+          `${apiBaseUrl}/api/admin/discounts/${promotionForm.id}`,
+          payload,
+          { headers: authHeaders },
+        );
+        setNoticeMessage("Promotion updated", "success");
+      } else {
+        await axios.post(`${apiBaseUrl}/api/admin/discounts`, payload, {
+          headers: authHeaders,
+        });
+        setNoticeMessage("Promotion created", "success");
+      }
+
+      resetPromotionForm();
+      await loadDashboard({ preserveNotice: true });
+    } catch (error) {
+      setNoticeMessage(
+        error?.response?.data?.error || "Failed to save promotion",
+        "error",
+      );
+    } finally {
+      setPromotionSaving(false);
+    }
+  };
+
+  const deletePromotion = async (row) => {
+    const ok = window.confirm(`Delete promotion \"${row.title}\"?`);
+    if (!ok) return;
+
+    try {
+      await axios.delete(`${apiBaseUrl}/api/admin/discounts/${row.id}`, {
+        headers: authHeaders,
+      });
+
+      setNoticeMessage("Promotion deleted", "info");
+      await loadDashboard({ preserveNotice: true });
+    } catch (error) {
+      setNoticeMessage(
+        error?.response?.data?.error || "Failed to delete promotion",
+        "error",
+      );
+    }
+  };
+
+  const uploadCmsImageToField =
+    (targetField, uploadCategory = cmsCategory) =>
+    async (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+
+      if (!["ranks", "crates", "packages"].includes(uploadCategory)) {
+        setNoticeMessage(
+          "Image upload is currently enabled only for ranks, crates, and packages",
+          "warning",
+        );
+        return;
+      }
+
+      if (!imageKitConfigured) {
+        setNoticeMessage("ImageKit is not configured on the server", "warning");
+        return;
+      }
+
+      try {
+        setCmsUploadingImage(true);
+        const fileData = await readFileAsDataUrl(file);
+
+        const { data } = await axios.post(
+          `${apiBaseUrl}/api/admin/cms/upload-image`,
+          {
+            fileName: file.name,
+            fileData,
+            category: uploadCategory,
+          },
+          { headers: authHeaders },
+        );
+
+        setCmsForm((prev) => ({
+          ...prev,
+          [targetField]: data?.url || prev[targetField],
+        }));
+
+        setNoticeMessage("Image uploaded successfully", "success");
+      } catch (error) {
+        setNoticeMessage(
+          error?.response?.data?.error || "Image upload failed",
+          "error",
+        );
+      } finally {
+        setCmsUploadingImage(false);
+      }
+    };
 
   const testProxy = async () => {
     try {
@@ -320,7 +1238,7 @@ const AdminDashboard = () => {
           username,
           applyRevokeActions: revokeForm.applyRevokeActions,
           revokeActionId: revokeForm.revokeActionId
-            ? Number(revokeForm.revokeActionId)
+            ? String(revokeForm.revokeActionId)
             : null,
         },
         { headers: authHeaders },
@@ -355,9 +1273,7 @@ const AdminDashboard = () => {
     try {
       const payload = {
         ...actionForm,
-        productCode: actionForm.isRevokeAction
-          ? REVOKE_ACTION_PRODUCT_CODE
-          : actionForm.productCode,
+        productId: actionForm.isRevokeAction ? "" : actionForm.productId,
       };
 
       if (actionForm.id) {
@@ -378,7 +1294,7 @@ const AdminDashboard = () => {
 
       setActionForm({
         id: null,
-        productCode: "",
+        productId: "",
         serverName: "",
         commandsText: "",
         isActive: true,
@@ -397,11 +1313,14 @@ const AdminDashboard = () => {
   const editAction = (row) => {
     setActionForm({
       id: row.id,
-      productCode: row.product_code,
+      productId: row.product_id || "",
       serverName: row.server_name,
       commandsText: row.commands_text,
       isActive: !!row.is_active,
-      isRevokeAction: row.product_code === REVOKE_ACTION_PRODUCT_CODE,
+      isRevokeAction:
+        row.action_kind === "revoke" ||
+        row.is_revoke_action ||
+        row.product_code === REVOKE_ACTION_PRODUCT_CODE,
     });
     setTab("actions");
   };
@@ -555,13 +1474,21 @@ const AdminDashboard = () => {
               <Tab value="overview" label="Overview" />
               <Tab value="subscriptions" label="Subscriptions" />
               <Tab value="permanent" label="Permanent Ranks" />
+              <Tab value="catalog" label="Catalog CMS" />
+              <Tab value="discounts" label="Discounts & Coupons" />
               <Tab value="actions" label="Postpurchase Actions" />
               <Tab value="tools" label="Tools" />
             </Tabs>
             <Button
               variant="outlined"
-              onClick={() => loadDashboard()}
-              disabled={busy}
+              onClick={() => {
+                if (tab === "catalog") {
+                  loadCmsCategory(cmsCategory, { preserveNotice: false });
+                } else {
+                  loadDashboard();
+                }
+              }}
+              disabled={busy || cmsLoading || cmsUploadingImage}
               startIcon={<RefreshCw size={16} />}
             >
               Refresh Data
@@ -890,6 +1817,1467 @@ const AdminDashboard = () => {
           </Stack>
         )}
 
+        {tab === "catalog" && (
+          <Grid container spacing={2} sx={{ alignItems: "stretch" }}>
+            <Grid size={{ xs: 12, xl: 5 }}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent>
+                  <Stack spacing={2}>
+                    <Typography variant="h6">
+                      {cmsForm.id ? "Edit" : "Create"} {cmsCategoryLabel}
+                    </Typography>
+
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="cms-category-label">Category</InputLabel>
+                      <Select
+                        labelId="cms-category-label"
+                        label="Category"
+                        value={cmsCategory}
+                        onChange={(e) => {
+                          const nextCategory = e.target.value;
+                          setCmsCategory(nextCategory);
+                          resetCmsForm(nextCategory);
+                        }}
+                      >
+                        {CMS_CATEGORIES.map((item) => (
+                          <MenuItem key={item.value} value={item.value}>
+                            {item.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    <TextField
+                      size="small"
+                      label="Code"
+                      value={cmsForm.code}
+                      onChange={(e) =>
+                        setCmsForm((prev) => ({
+                          ...prev,
+                          code: e.target.value,
+                        }))
+                      }
+                    />
+
+                    <TextField
+                      size="small"
+                      label="Name"
+                      value={cmsForm.name}
+                      onChange={(e) =>
+                        setCmsForm((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                    />
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          size="small"
+                          label="Price"
+                          type="number"
+                          value={cmsForm.price}
+                          onChange={(e) =>
+                            setCmsForm((prev) => ({
+                              ...prev,
+                              price: e.target.value,
+                            }))
+                          }
+                          fullWidth
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          size="small"
+                          label="Currency"
+                          value={cmsForm.currency}
+                          onChange={(e) =>
+                            setCmsForm((prev) => ({
+                              ...prev,
+                              currency: e.target.value,
+                            }))
+                          }
+                          fullWidth
+                        />
+                      </Grid>
+                    </Grid>
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          size="small"
+                          label="Display Order"
+                          type="number"
+                          value={cmsForm.displayOrder}
+                          onChange={(e) =>
+                            setCmsForm((prev) => ({
+                              ...prev,
+                              displayOrder: e.target.value,
+                            }))
+                          }
+                          fullWidth
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={cmsForm.isActive}
+                              onChange={(e) =>
+                                setCmsForm((prev) => ({
+                                  ...prev,
+                                  isActive: e.target.checked,
+                                }))
+                              }
+                            />
+                          }
+                          label="Active"
+                        />
+                      </Grid>
+                    </Grid>
+
+                    <TextField
+                      size="small"
+                      label="Image URL"
+                      value={cmsForm.img}
+                      onChange={(e) =>
+                        setCmsForm((prev) => ({ ...prev, img: e.target.value }))
+                      }
+                    />
+
+                    {cmsCanUploadImage ? (
+                      <Stack spacing={1.25}>
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          spacing={1.5}
+                          sx={{ alignItems: { xs: "stretch", sm: "center" } }}
+                        >
+                          <Button
+                            component="label"
+                            variant="outlined"
+                            startIcon={<Upload size={16} />}
+                            disabled={!imageKitConfigured || cmsUploadingImage}
+                          >
+                            {cmsUploadingImage
+                              ? "Uploading..."
+                              : "Upload Primary Image"}
+                            <input
+                              hidden
+                              type="file"
+                              accept="image/*"
+                              onChange={uploadCmsImageToField("img")}
+                            />
+                          </Button>
+
+                          <Chip
+                            size="small"
+                            label={
+                              imageKitConfigured
+                                ? "ImageKit Connected"
+                                : "ImageKit Not Configured"
+                            }
+                            color={imageKitConfigured ? "success" : "warning"}
+                            variant="outlined"
+                          />
+                        </Stack>
+
+                        {!imageKitConfigured ? (
+                          <Typography variant="caption" color="text.secondary">
+                            Set IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, and
+                            IMAGEKIT_URL_ENDPOINT in backend environment.
+                          </Typography>
+                        ) : null}
+                      </Stack>
+                    ) : null}
+
+                    <TextField
+                      label="Description"
+                      multiline
+                      minRows={2}
+                      value={cmsForm.description}
+                      onChange={(e) =>
+                        setCmsForm((prev) => ({
+                          ...prev,
+                          description: e.target.value,
+                        }))
+                      }
+                    />
+
+                    <TextField
+                      label="Perks (one per line)"
+                      multiline
+                      minRows={4}
+                      value={cmsForm.perksText}
+                      onChange={(e) =>
+                        setCmsForm((prev) => ({
+                          ...prev,
+                          perksText: e.target.value,
+                        }))
+                      }
+                    />
+
+                    {cmsCategory === "ranks" ? (
+                      <Grid container spacing={1.5}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel id="rank-kind-label">
+                              Rank Type
+                            </InputLabel>
+                            <Select
+                              labelId="rank-kind-label"
+                              label="Rank Type"
+                              value={cmsForm.rankKind}
+                              onChange={(e) =>
+                                setCmsForm((prev) => ({
+                                  ...prev,
+                                  rankKind: e.target.value,
+                                }))
+                              }
+                            >
+                              <MenuItem value="lifetime">Lifetime</MenuItem>
+                              <MenuItem value="subscription">
+                                Subscription
+                              </MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel id="billing-interval-label">
+                              Billing Interval
+                            </InputLabel>
+                            <Select
+                              labelId="billing-interval-label"
+                              label="Billing Interval"
+                              value={cmsForm.billingInterval}
+                              onChange={(e) =>
+                                setCmsForm((prev) => ({
+                                  ...prev,
+                                  billingInterval: e.target.value,
+                                }))
+                              }
+                            >
+                              <MenuItem value="none">None</MenuItem>
+                              <MenuItem value="monthly">Monthly</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                      </Grid>
+                    ) : null}
+
+                    {cmsCategory === "crates" ? (
+                      <Stack spacing={1.5}>
+                        <Grid container spacing={1.5}>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel id="crate-status-label">
+                                Status
+                              </InputLabel>
+                              <Select
+                                labelId="crate-status-label"
+                                label="Status"
+                                value={cmsForm.status}
+                                onChange={(e) =>
+                                  setCmsForm((prev) => ({
+                                    ...prev,
+                                    status: e.target.value,
+                                  }))
+                                }
+                              >
+                                <MenuItem value="live">Live</MenuItem>
+                                <MenuItem value="soon">Soon</MenuItem>
+                                <MenuItem value="planned">Planned</MenuItem>
+                                <MenuItem value="archived">Archived</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField
+                              size="small"
+                              label="Info"
+                              value={cmsForm.info}
+                              onChange={(e) =>
+                                setCmsForm((prev) => ({
+                                  ...prev,
+                                  info: e.target.value,
+                                }))
+                              }
+                              fullWidth
+                            />
+                          </Grid>
+                        </Grid>
+
+                        <TextField
+                          size="small"
+                          label="Crate Icon URL"
+                          value={cmsForm.crateIcon}
+                          onChange={(e) =>
+                            setCmsForm((prev) => ({
+                              ...prev,
+                              crateIcon: e.target.value,
+                            }))
+                          }
+                        />
+
+                        <Button
+                          component="label"
+                          variant="outlined"
+                          startIcon={<Upload size={16} />}
+                          disabled={!imageKitConfigured || cmsUploadingImage}
+                          sx={{ alignSelf: "flex-start" }}
+                        >
+                          {cmsUploadingImage
+                            ? "Uploading..."
+                            : "Upload Crate Icon"}
+                          <input
+                            hidden
+                            type="file"
+                            accept="image/*"
+                            onChange={uploadCmsImageToField(
+                              "crateIcon",
+                              "crates",
+                            )}
+                          />
+                        </Button>
+
+                        <TextField
+                          size="small"
+                          label="Inventory Image URL"
+                          value={cmsForm.inventoryImage}
+                          onChange={(e) =>
+                            setCmsForm((prev) => ({
+                              ...prev,
+                              inventoryImage: e.target.value,
+                            }))
+                          }
+                        />
+
+                        <Button
+                          component="label"
+                          variant="outlined"
+                          startIcon={<Upload size={16} />}
+                          disabled={!imageKitConfigured || cmsUploadingImage}
+                          sx={{ alignSelf: "flex-start" }}
+                        >
+                          {cmsUploadingImage
+                            ? "Uploading..."
+                            : "Upload Inventory Image"}
+                          <input
+                            hidden
+                            type="file"
+                            accept="image/*"
+                            onChange={uploadCmsImageToField(
+                              "inventoryImage",
+                              "crates",
+                            )}
+                          />
+                        </Button>
+                      </Stack>
+                    ) : null}
+
+                    {cmsCategory === "packages" ? (
+                      <Stack spacing={1.5}>
+                        <Grid container spacing={1.5}>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField
+                              size="small"
+                              label="Badge"
+                              value={cmsForm.badge}
+                              onChange={(e) =>
+                                setCmsForm((prev) => ({
+                                  ...prev,
+                                  badge: e.target.value,
+                                }))
+                              }
+                              fullWidth
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField
+                              size="small"
+                              label="Category Tag"
+                              value={cmsForm.categoryTag}
+                              onChange={(e) =>
+                                setCmsForm((prev) => ({
+                                  ...prev,
+                                  categoryTag: e.target.value,
+                                }))
+                              }
+                              fullWidth
+                            />
+                          </Grid>
+                        </Grid>
+
+                        <TextField
+                          size="small"
+                          label="Package Icon URL"
+                          value={cmsForm.packageIcon}
+                          onChange={(e) =>
+                            setCmsForm((prev) => ({
+                              ...prev,
+                              packageIcon: e.target.value,
+                            }))
+                          }
+                        />
+
+                        <Button
+                          component="label"
+                          variant="outlined"
+                          startIcon={<Upload size={16} />}
+                          disabled={!imageKitConfigured || cmsUploadingImage}
+                          sx={{ alignSelf: "flex-start" }}
+                        >
+                          {cmsUploadingImage
+                            ? "Uploading..."
+                            : "Upload Package Icon"}
+                          <input
+                            hidden
+                            type="file"
+                            accept="image/*"
+                            onChange={uploadCmsImageToField(
+                              "packageIcon",
+                              "packages",
+                            )}
+                          />
+                        </Button>
+                      </Stack>
+                    ) : null}
+
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1.5}
+                    >
+                      <Button
+                        variant="contained"
+                        onClick={saveCmsProduct}
+                        disabled={cmsLoading || cmsUploadingImage}
+                      >
+                        {cmsForm.id ? "Update" : "Create"}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => resetCmsForm(cmsCategory)}
+                      >
+                        Reset Form
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid size={{ xs: 12, xl: 7 }}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent>
+                  <Stack spacing={2}>
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1.5}
+                      sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                    >
+                      <Typography variant="h6">
+                        {cmsCategoryLabel} Catalog
+                      </Typography>
+                      <Chip
+                        label={`${cmsRows.length} item${cmsRows.length === 1 ? "" : "s"}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
+
+                    <TableContainer sx={tableContainerSx}>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Code</TableCell>
+                            <TableCell>Name</TableCell>
+                            <TableCell>Price</TableCell>
+                            <TableCell>Order</TableCell>
+                            <TableCell>Active</TableCell>
+                            <TableCell>Image</TableCell>
+                            <TableCell>Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {cmsRows.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell>{row.code}</TableCell>
+                              <TableCell>{row.name}</TableCell>
+                              <TableCell>
+                                {row.currency || "INR"}{" "}
+                                {Number(row.price || 0).toLocaleString(
+                                  "en-IN",
+                                  {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  },
+                                )}
+                              </TableCell>
+                              <TableCell>{row.displayOrder ?? 0}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={row.isActive ? "Active" : "Inactive"}
+                                  color={row.isActive ? "success" : "default"}
+                                  variant={row.isActive ? "filled" : "outlined"}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                {row.img ||
+                                (cmsCategory === "crates" &&
+                                  (row.crateIcon || row.inventoryImage)) ||
+                                (cmsCategory === "packages" &&
+                                  row.packageIcon) ? (
+                                  <Stack
+                                    direction="row"
+                                    spacing={1}
+                                    sx={{
+                                      alignItems: "center",
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
+                                    {row.img ? (
+                                      <Box
+                                        component="img"
+                                        src={row.img}
+                                        alt={row.name}
+                                        sx={{
+                                          width: 46,
+                                          height: 46,
+                                          objectFit: "cover",
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                          borderRadius: 0.75,
+                                        }}
+                                      />
+                                    ) : null}
+
+                                    {cmsCategory === "crates" &&
+                                    row.crateIcon ? (
+                                      <Box
+                                        component="img"
+                                        src={row.crateIcon}
+                                        alt={`${row.name} icon`}
+                                        sx={{
+                                          width: 46,
+                                          height: 46,
+                                          objectFit: "cover",
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                          borderRadius: 0.75,
+                                        }}
+                                      />
+                                    ) : null}
+
+                                    {cmsCategory === "crates" &&
+                                    row.inventoryImage ? (
+                                      <Box
+                                        component="img"
+                                        src={row.inventoryImage}
+                                        alt={`${row.name} inventory`}
+                                        sx={{
+                                          width: 46,
+                                          height: 46,
+                                          objectFit: "cover",
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                          borderRadius: 0.75,
+                                        }}
+                                      />
+                                    ) : null}
+
+                                    {cmsCategory === "packages" &&
+                                    row.packageIcon ? (
+                                      <Box
+                                        component="img"
+                                        src={row.packageIcon}
+                                        alt={`${row.name} icon`}
+                                        sx={{
+                                          width: 46,
+                                          height: 46,
+                                          objectFit: "cover",
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                          borderRadius: 0.75,
+                                        }}
+                                      />
+                                    ) : null}
+                                  </Stack>
+                                ) : (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    No image
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Stack direction="row" spacing={1}>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => editCmsProduct(row)}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="error"
+                                    onClick={() => deleteCmsProduct(row)}
+                                  >
+                                    Delete
+                                  </Button>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                          {cmsRows.length === 0
+                            ? renderEmptyRow(
+                                7,
+                                cmsLoading
+                                  ? "Loading catalog data..."
+                                  : "No products found for this category",
+                              )
+                            : null}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        )}
+
+        {tab === "discounts" && (
+          <Grid container spacing={2} sx={{ alignItems: "stretch" }}>
+            <Grid size={{ xs: 12, xl: 5 }}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent>
+                  <Stack spacing={2}>
+                    <Typography variant="h6">
+                      {promotionForm.id ? "Edit" : "Create"} Discount / Coupon
+                    </Typography>
+
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="promotion-kind-label">Type</InputLabel>
+                      <Select
+                        labelId="promotion-kind-label"
+                        label="Type"
+                        value={promotionForm.kind}
+                        onChange={(e) =>
+                          setPromotionForm((prev) => ({
+                            ...prev,
+                            kind: e.target.value,
+                            code: e.target.value === "coupon" ? prev.code : "",
+                            stackable:
+                              e.target.value === "coupon"
+                                ? prev.stackable
+                                : false,
+                            usageLimit:
+                              e.target.value === "coupon"
+                                ? prev.usageLimit
+                                : "",
+                            usagePerUser:
+                              e.target.value === "coupon"
+                                ? prev.usagePerUser
+                                : "",
+                            minOrderAmount:
+                              e.target.value === "coupon"
+                                ? prev.minOrderAmount
+                                : "",
+                            maxDiscountAmount:
+                              e.target.value === "coupon"
+                                ? prev.maxDiscountAmount
+                                : "",
+                          }))
+                        }
+                      >
+                        <MenuItem value="upfront">Upfront Discount</MenuItem>
+                        <MenuItem value="coupon">Coupon Code</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <TextField
+                      size="small"
+                      label="Title"
+                      value={promotionForm.title}
+                      onChange={(e) =>
+                        setPromotionForm((prev) => ({
+                          ...prev,
+                          title: e.target.value,
+                        }))
+                      }
+                    />
+
+                    {promotionForm.kind === "coupon" ? (
+                      <TextField
+                        size="small"
+                        label="Coupon Code"
+                        value={promotionForm.code}
+                        onChange={(e) =>
+                          setPromotionForm((prev) => ({
+                            ...prev,
+                            code: e.target.value.toUpperCase(),
+                          }))
+                        }
+                      />
+                    ) : null}
+
+                    <Paper variant="outlined" sx={{ p: 1.5 }}>
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1.5}
+                        sx={{
+                          justifyContent: "space-between",
+                          alignItems: { xs: "flex-start", sm: "center" },
+                        }}
+                      >
+                        <Box>
+                          <Typography sx={{ fontWeight: 600 }}>
+                            Product Scope
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {promotionScopeSummary(promotionForm)}
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="outlined"
+                          onClick={() => setPromotionScopeOpen(true)}
+                        >
+                          Choose Scope
+                        </Button>
+                      </Stack>
+                    </Paper>
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel id="promotion-discount-type-label">
+                            Discount Type
+                          </InputLabel>
+                          <Select
+                            labelId="promotion-discount-type-label"
+                            label="Discount Type"
+                            value={promotionForm.discountType}
+                            onChange={(e) =>
+                              setPromotionForm((prev) => ({
+                                ...prev,
+                                discountType: e.target.value,
+                              }))
+                            }
+                          >
+                            <MenuItem value="percent">Percent</MenuItem>
+                            <MenuItem value="fixed">Fixed Amount</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          size="small"
+                          label="Discount Value"
+                          type="number"
+                          value={promotionForm.discountValue}
+                          onChange={(e) =>
+                            setPromotionForm((prev) => ({
+                              ...prev,
+                              discountValue: e.target.value,
+                            }))
+                          }
+                          fullWidth
+                        />
+                      </Grid>
+                    </Grid>
+
+                    {promotionForm.kind === "coupon" ? (
+                      <Grid container spacing={1.5}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <TextField
+                            size="small"
+                            label="Min Order Amount"
+                            type="number"
+                            value={promotionForm.minOrderAmount}
+                            onChange={(e) =>
+                              setPromotionForm((prev) => ({
+                                ...prev,
+                                minOrderAmount: e.target.value,
+                              }))
+                            }
+                            fullWidth
+                          />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <TextField
+                            size="small"
+                            label="Max Discount Amount"
+                            type="number"
+                            value={promotionForm.maxDiscountAmount}
+                            onChange={(e) =>
+                              setPromotionForm((prev) => ({
+                                ...prev,
+                                maxDiscountAmount: e.target.value,
+                              }))
+                            }
+                            fullWidth
+                          />
+                        </Grid>
+                      </Grid>
+                    ) : null}
+
+                    {promotionForm.kind === "coupon" ? (
+                      <>
+                        <Grid container spacing={1.5}>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField
+                              size="small"
+                              label="Usage Limit"
+                              type="number"
+                              value={promotionForm.usageLimit}
+                              onChange={(e) =>
+                                setPromotionForm((prev) => ({
+                                  ...prev,
+                                  usageLimit: e.target.value,
+                                }))
+                              }
+                              fullWidth
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField
+                              size="small"
+                              label="Usage Per User"
+                              type="number"
+                              value={promotionForm.usagePerUser}
+                              onChange={(e) =>
+                                setPromotionForm((prev) => ({
+                                  ...prev,
+                                  usagePerUser: e.target.value,
+                                }))
+                              }
+                              fullWidth
+                            />
+                          </Grid>
+                        </Grid>
+
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={promotionForm.stackable}
+                              onChange={(e) =>
+                                setPromotionForm((prev) => ({
+                                  ...prev,
+                                  stackable: e.target.checked,
+                                }))
+                              }
+                            />
+                          }
+                          label="Allow stacking with upfront discounts"
+                        />
+                      </>
+                    ) : null}
+
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={promotionForm.showOnStorefront}
+                          onChange={(e) =>
+                            setPromotionForm((prev) => ({
+                              ...prev,
+                              showOnStorefront: e.target.checked,
+                            }))
+                          }
+                        />
+                      }
+                      label={
+                        promotionForm.kind === "coupon"
+                          ? "Show coupon in homepage discounts section"
+                          : "Show in homepage discounts section"
+                      }
+                    />
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="caption" color="text.secondary">
+                            Starts At
+                          </Typography>
+                          <TextField
+                            size="small"
+                            type="datetime-local"
+                            value={promotionForm.startsAt}
+                            onChange={(e) =>
+                              setPromotionForm((prev) => ({
+                                ...prev,
+                                startsAt: e.target.value,
+                              }))
+                            }
+                            fullWidth
+                          />
+                        </Stack>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="caption" color="text.secondary">
+                            Ends At
+                          </Typography>
+                          <TextField
+                            size="small"
+                            type="datetime-local"
+                            value={promotionForm.endsAt}
+                            onChange={(e) =>
+                              setPromotionForm((prev) => ({
+                                ...prev,
+                                endsAt: e.target.value,
+                              }))
+                            }
+                            fullWidth
+                          />
+                        </Stack>
+                      </Grid>
+                    </Grid>
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField
+                          size="small"
+                          label="Display Order"
+                          type="number"
+                          value={promotionForm.displayOrder}
+                          onChange={(e) =>
+                            setPromotionForm((prev) => ({
+                              ...prev,
+                              displayOrder: e.target.value,
+                            }))
+                          }
+                          fullWidth
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={promotionForm.isActive}
+                              onChange={(e) =>
+                                setPromotionForm((prev) => ({
+                                  ...prev,
+                                  isActive: e.target.checked,
+                                }))
+                              }
+                            />
+                          }
+                          label="Active"
+                        />
+                      </Grid>
+                    </Grid>
+
+                    <TextField
+                      label="Description"
+                      multiline
+                      minRows={3}
+                      value={promotionForm.description}
+                      onChange={(e) =>
+                        setPromotionForm((prev) => ({
+                          ...prev,
+                          description: e.target.value,
+                        }))
+                      }
+                    />
+
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1.5}
+                    >
+                      <Button
+                        variant="contained"
+                        onClick={savePromotion}
+                        disabled={busy || promotionSaving}
+                      >
+                        {promotionForm.id ? "Update" : "Create"}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={resetPromotionForm}
+                        disabled={busy || promotionSaving}
+                      >
+                        Reset Form
+                      </Button>
+                    </Stack>
+
+                    <Dialog
+                      open={promotionScopeOpen}
+                      onClose={() => setPromotionScopeOpen(false)}
+                      fullWidth
+                      maxWidth="md"
+                    >
+                      <DialogTitle>Choose Promotion Scope</DialogTitle>
+                      <DialogContent dividers>
+                        <Stack spacing={2}>
+                          <Alert severity="info">
+                            Select one or more categories, specific products, or
+                            leave everything unchecked to apply this promotion
+                            to all products.
+                          </Alert>
+
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={
+                                  !promotionForm.productCodes.length &&
+                                  !promotionForm.productCategories.length
+                                }
+                                onChange={() => clearPromotionScope()}
+                              />
+                            }
+                            label="All products"
+                          />
+
+                          <Grid container spacing={1.25}>
+                            {CMS_CATEGORIES.map((category) => (
+                              <Grid
+                                key={category.value}
+                                size={{ xs: 12, sm: 4 }}
+                              >
+                                <Paper variant="outlined" sx={{ p: 1 }}>
+                                  <FormControlLabel
+                                    control={
+                                      <Checkbox
+                                        checked={promotionForm.productCategories.includes(
+                                          category.value,
+                                        )}
+                                        onChange={() =>
+                                          togglePromotionCategoryScope(
+                                            category.value,
+                                          )
+                                        }
+                                      />
+                                    }
+                                    label={`${category.label} (${(actionProductsByCategory[category.value] || []).length})`}
+                                  />
+                                </Paper>
+                              </Grid>
+                            ))}
+                          </Grid>
+
+                          {CMS_CATEGORIES.map((category) => (
+                            <Paper
+                              key={`scope-${category.value}`}
+                              variant="outlined"
+                              sx={{ p: 1.25 }}
+                            >
+                              <Stack spacing={1}>
+                                <Typography sx={{ fontWeight: 600 }}>
+                                  {category.label} Products
+                                </Typography>
+
+                                {(
+                                  actionProductsByCategory[category.value] || []
+                                ).length ? (
+                                  <Grid container spacing={1}>
+                                    {(
+                                      actionProductsByCategory[
+                                        category.value
+                                      ] || []
+                                    ).map((product) => (
+                                      <Grid
+                                        key={product.id}
+                                        size={{ xs: 12, md: 6 }}
+                                      >
+                                        <FormControlLabel
+                                          control={
+                                            <Checkbox
+                                              checked={promotionForm.productCodes.includes(
+                                                product.code,
+                                              )}
+                                              onChange={() =>
+                                                togglePromotionProductScope(
+                                                  product.code,
+                                                )
+                                              }
+                                            />
+                                          }
+                                          label={
+                                            product.displayName ||
+                                            `${product.name} (${product.code})`
+                                          }
+                                        />
+                                      </Grid>
+                                    ))}
+                                  </Grid>
+                                ) : (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    No products in this category yet.
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </Paper>
+                          ))}
+                        </Stack>
+                      </DialogContent>
+                      <DialogActions>
+                        <Button onClick={clearPromotionScope}>
+                          Select All Products
+                        </Button>
+                        <Button
+                          variant="contained"
+                          onClick={() => setPromotionScopeOpen(false)}
+                        >
+                          Done
+                        </Button>
+                      </DialogActions>
+                    </Dialog>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid size={{ xs: 12, xl: 7 }}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent>
+                  <Stack spacing={2}>
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1.5}
+                      sx={{ alignItems: { xs: "flex-start", sm: "center" } }}
+                    >
+                      <Typography variant="h6">
+                        Configured Promotions
+                      </Typography>
+                      <Chip
+                        label={`${promotions.length} item${promotions.length === 1 ? "" : "s"}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
+
+                    <TableContainer sx={promotionsTableSx}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ width: 220 }}>Title</TableCell>
+                            <TableCell sx={{ width: 150 }}>Type</TableCell>
+                            <TableCell sx={{ width: 170 }}>Scope</TableCell>
+                            <TableCell sx={{ width: 180 }}>Discount</TableCell>
+                            <TableCell sx={{ width: 220 }}>Window</TableCell>
+                            <TableCell sx={{ width: 120 }}>Usage</TableCell>
+                            <TableCell sx={{ width: 150 }}>Status</TableCell>
+                            <TableCell sx={{ width: 220 }}>Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {promotions.map((promotion) => (
+                            <TableRow key={promotion.id}>
+                              <TableCell>
+                                <Stack spacing={0.6}>
+                                  <Typography
+                                    sx={{ fontWeight: 700, lineHeight: 1.3 }}
+                                  >
+                                    {promotion.title}
+                                  </Typography>
+                                  {promotion.description ? (
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{
+                                        display: "-webkit-box",
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: "vertical",
+                                        overflow: "hidden",
+                                        lineHeight: 1.35,
+                                      }}
+                                    >
+                                      {promotion.description}
+                                    </Typography>
+                                  ) : null}
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.7}>
+                                  <Chip
+                                    size="small"
+                                    label={
+                                      promotion.kind === "coupon"
+                                        ? "Coupon"
+                                        : "Upfront"
+                                    }
+                                    color={
+                                      promotion.kind === "coupon"
+                                        ? "secondary"
+                                        : "info"
+                                    }
+                                    variant="outlined"
+                                  />
+                                  {promotion.kind === "coupon" ? (
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={`Code ${promotion.code || "-"}`}
+                                      sx={{
+                                        width: "fit-content",
+                                        fontFamily: "monospace",
+                                      }}
+                                    ></Chip>
+                                  ) : null}
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ fontWeight: 600, lineHeight: 1.35 }}
+                                  >
+                                    {promotionScopeSummary(promotion)}
+                                  </Typography>
+                                  {Array.isArray(promotion.productCodes) &&
+                                  promotion.productCodes.length > 0 ? (
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ lineHeight: 1.35 }}
+                                    >
+                                      {promotion.productCodes
+                                        .slice(0, 2)
+                                        .join(", ")}
+                                      {promotion.productCodes.length > 2
+                                        ? ` +${promotion.productCodes.length - 2}`
+                                        : ""}
+                                    </Typography>
+                                  ) : null}
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ fontWeight: 600 }}
+                                  >
+                                    {promotionDiscountLabel(promotion)}
+                                  </Typography>
+                                  {promotion.kind === "coupon" &&
+                                  Number(promotion.minOrderAmount || 0) > 0 ? (
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ lineHeight: 1.35 }}
+                                    >
+                                      Min order:{" "}
+                                      {money(promotion.minOrderAmount)}
+                                    </Typography>
+                                  ) : null}
+                                  {promotion.kind === "coupon" &&
+                                  promotion.maxDiscountAmount !== null &&
+                                  promotion.maxDiscountAmount !== undefined ? (
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ lineHeight: 1.35 }}
+                                    >
+                                      Max: {money(promotion.maxDiscountAmount)}
+                                    </Typography>
+                                  ) : null}
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.45}>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    Starts
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ lineHeight: 1.35 }}
+                                  >
+                                    {promotion.startsAt
+                                      ? analyticsDateLabel(promotion.startsAt)
+                                      : "Now"}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    Ends
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ lineHeight: 1.35 }}
+                                  >
+                                    {promotion.endsAt
+                                      ? analyticsDateLabel(promotion.endsAt)
+                                      : "No expiry"}
+                                  </Typography>
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.5}>
+                                  <Chip
+                                    size="small"
+                                    color="primary"
+                                    variant="outlined"
+                                    label={`${Number(promotion.totalUsed || 0)} / ${promotion.usageLimit || "Unlimited"}`}
+                                    sx={{
+                                      width: "fit-content",
+                                      fontWeight: 700,
+                                    }}
+                                  />
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack spacing={0.75}>
+                                  <Chip
+                                    size="small"
+                                    label={
+                                      promotion.isActive ? "Active" : "Inactive"
+                                    }
+                                    color={
+                                      promotion.isActive ? "success" : "default"
+                                    }
+                                    variant={
+                                      promotion.isActive ? "filled" : "outlined"
+                                    }
+                                  />
+                                  {promotion.showOnStorefront ? (
+                                    <Chip
+                                      size="small"
+                                      label="Visible On Homepage"
+                                      color="info"
+                                      variant="outlined"
+                                    />
+                                  ) : null}
+                                </Stack>
+                              </TableCell>
+                              <TableCell>
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{
+                                    flexWrap: "wrap",
+                                    "& .MuiButton-root": {
+                                      minWidth: 84,
+                                    },
+                                  }}
+                                >
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="info"
+                                    onClick={() =>
+                                      openPromotionAnalytics(promotion)
+                                    }
+                                  >
+                                    Analytics
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => editPromotion(promotion)}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="error"
+                                    onClick={() => deletePromotion(promotion)}
+                                  >
+                                    Delete
+                                  </Button>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                          {promotions.length === 0
+                            ? renderEmptyRow(
+                                8,
+                                busy
+                                  ? "Loading promotions..."
+                                  : "No discounts or coupons configured",
+                              )
+                            : null}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Dialog
+              open={promotionAnalyticsOpen}
+              onClose={closePromotionAnalytics}
+              fullWidth
+              maxWidth="lg"
+            >
+              <DialogTitle>
+                Promotion Analytics
+                {promotionAnalyticsPromotion
+                  ? `: ${promotionAnalyticsPromotion.title}`
+                  : ""}
+              </DialogTitle>
+              <DialogContent dividers>
+                {promotionAnalyticsPromotion ? (
+                  <Stack spacing={2}>
+                    <Alert severity="info">
+                      Comprehensive analytics view for this promotion, including
+                      usage, audience behavior, revenue impact, and timeline
+                      signals.
+                    </Alert>
+
+                    <TableContainer
+                      sx={{
+                        border: "1px solid",
+                        borderColor: "divider",
+                        borderRadius: 1,
+                        maxHeight: 520,
+                      }}
+                    >
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Category</TableCell>
+                            <TableCell>Metric</TableCell>
+                            <TableCell>Value</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {buildPromotionAnalyticsRows(
+                            promotionAnalyticsPromotion,
+                          ).map((row) => (
+                            <TableRow key={`${row.category}-${row.metric}`}>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={row.category}
+                                  variant="outlined"
+                                />
+                              </TableCell>
+                              <TableCell>{row.metric}</TableCell>
+                              <TableCell>{row.value}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Stack>
+                ) : null}
+              </DialogContent>
+              <DialogActions>
+                <Button variant="contained" onClick={closePromotionAnalytics}>
+                  Close
+                </Button>
+              </DialogActions>
+            </Dialog>
+          </Grid>
+        )}
+
         {tab === "actions" && (
           <Grid container spacing={2} sx={{ alignItems: "stretch" }}>
             <Grid size={{ xs: 12, xl: 5 }}>
@@ -908,9 +3296,7 @@ const AdminDashboard = () => {
                             setActionForm((prev) => ({
                               ...prev,
                               isRevokeAction: e.target.checked,
-                              productCode: e.target.checked
-                                ? REVOKE_ACTION_PRODUCT_CODE
-                                : "",
+                              productId: e.target.checked ? "" : "",
                             }))
                           }
                         />
@@ -937,24 +3323,22 @@ const AdminDashboard = () => {
                       <Select
                         labelId="action-product-label"
                         value={
-                          actionForm.isRevokeAction
-                            ? ""
-                            : actionForm.productCode
+                          actionForm.isRevokeAction ? "" : actionForm.productId
                         }
                         label="Product"
                         onChange={(e) =>
                           setActionForm((prev) => ({
                             ...prev,
-                            productCode: e.target.value,
+                            productId: e.target.value,
                           }))
                         }
                       >
                         <MenuItem value="">
                           <em>Select product</em>
                         </MenuItem>
-                        {products.map((product) => (
-                          <MenuItem key={product.code} value={product.code}>
-                            {product.displayName || product.code}
+                        {actionProducts.map((product) => (
+                          <MenuItem key={product.id} value={product.id}>
+                            {product.code}
                           </MenuItem>
                         ))}
                       </Select>
@@ -1038,7 +3422,7 @@ const AdminDashboard = () => {
                         onClick={saveAction}
                         disabled={
                           (!actionForm.isRevokeAction &&
-                            products.length === 0) ||
+                            actionProducts.length === 0) ||
                           proxyServers.length === 0
                         }
                       >
@@ -1049,7 +3433,7 @@ const AdminDashboard = () => {
                         onClick={() =>
                           setActionForm({
                             id: null,
-                            productCode: "",
+                            productId: "",
                             serverName: "",
                             commandsText: "",
                             isActive: true,
@@ -1075,8 +3459,7 @@ const AdminDashboard = () => {
                     <Table>
                       <TableHead>
                         <TableRow>
-                          <TableCell>ID</TableCell>
-                          <TableCell>Product</TableCell>
+                          <TableCell>Product Code</TableCell>
                           <TableCell>Type</TableCell>
                           <TableCell>Server</TableCell>
                           <TableCell>Commands</TableCell>
@@ -1087,20 +3470,23 @@ const AdminDashboard = () => {
                       <TableBody>
                         {actions.map((row) => (
                           <TableRow key={row.id}>
-                            <TableCell>{row.id}</TableCell>
-                            <TableCell>{row.product_code}</TableCell>
+                            <TableCell>{row.product_code || "-"}</TableCell>
                             <TableCell>
                               <Chip
                                 size="small"
                                 label={
+                                  row.action_kind === "revoke" ||
+                                  row.is_revoke_action ||
                                   row.product_code ===
-                                  REVOKE_ACTION_PRODUCT_CODE
+                                    REVOKE_ACTION_PRODUCT_CODE
                                     ? "Revoke"
                                     : "Grant"
                                 }
                                 color={
+                                  row.action_kind === "revoke" ||
+                                  row.is_revoke_action ||
                                   row.product_code ===
-                                  REVOKE_ACTION_PRODUCT_CODE
+                                    REVOKE_ACTION_PRODUCT_CODE
                                     ? "warning"
                                     : "info"
                                 }

@@ -7,6 +7,7 @@ import userTheme from "../userTheme";
 
 const routeToActive = (pathname) => {
   if (pathname.startsWith("/ranks")) return "ranks";
+  if (pathname.startsWith("/packages")) return "packages";
   if (pathname.startsWith("/upgrades")) return "upgrades";
   if (pathname.startsWith("/crates")) return "crates";
   if (

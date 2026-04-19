@@ -20,13 +20,13 @@ import {
   getOfferAnchorId,
 } from "./data/storeDiscountApi";
 
-const Crates = () => {
+const Packages = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [discountError, setDiscountError] = useState("");
-  const [crates, setCrates] = useState([]);
+  const [packages, setPackages] = useState([]);
   const [currency, setCurrency] = useState("INR");
   const [discounts, setDiscounts] = useState([]);
 
@@ -37,7 +37,7 @@ const Crates = () => {
   useEffect(() => {
     let disposed = false;
 
-    const loadCrates = async () => {
+    const loadPackages = async () => {
       setLoading(true);
       setError("");
 
@@ -45,19 +45,20 @@ const Crates = () => {
         const catalog = await fetchStorefrontCatalog();
         if (disposed) return;
 
-        setCrates(catalog.crates || []);
+        setPackages(catalog.packages || []);
         setCurrency(catalog.currency || "INR");
       } catch (catalogError) {
         if (disposed) return;
         setError(
-          catalogError?.response?.data?.error || "Failed to load crate catalog",
+          catalogError?.response?.data?.error ||
+            "Failed to load package catalog",
         );
       } finally {
         if (!disposed) setLoading(false);
       }
     };
 
-    loadCrates();
+    loadPackages();
 
     return () => {
       disposed = true;
@@ -95,10 +96,8 @@ const Crates = () => {
     target.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [highlightCode, loading]);
 
-  const handleBuy = (crate) => {
-    navigate(
-      `/buy?productCode=${encodeURIComponent(crate.code || crate.name)}`,
-    );
+  const handleBuy = (pkg) => {
+    navigate(`/buy?productCode=${encodeURIComponent(pkg.code || pkg.name)}`);
   };
 
   return (
@@ -106,10 +105,9 @@ const Crates = () => {
       <Card>
         <CardContent sx={{ p: 3 }}>
           <Stack spacing={1.5}>
-            <Typography variant="h3">Crate Vault</Typography>
+            <Typography variant="h3">Packages</Typography>
             <Typography color="text.secondary">
-              Crates are in production and will launch in phased drops with
-              fixed pricing and transparent odds.
+              Browse curated bundles that combine perks and utility upgrades.
             </Typography>
           </Stack>
         </CardContent>
@@ -118,35 +116,22 @@ const Crates = () => {
       {error ? <Alert severity="error">{error}</Alert> : null}
       {discountError ? <Alert severity="warning">{discountError}</Alert> : null}
 
-      {loading ? (
-        <Card>
-          <CardContent sx={{ p: 3 }}>
-            <Typography color="text.secondary">
-              Loading crate catalog...
-            </Typography>
-          </CardContent>
-        </Card>
-      ) : null}
-
       <Grid container spacing={2}>
-        {crates.map((crate) => {
+        {packages.map((pkg) => {
           const discountInfo = getBestDiscountForProduct(
-            crate.code,
-            crate.price,
+            pkg.code,
+            pkg.price,
             discounts,
-            crate.category || "crates",
+            pkg.category || "packages",
           );
           const isHighlighted =
-            Boolean(highlightCode) && crate.code === highlightCode;
+            Boolean(highlightCode) && pkg.code === highlightCode;
 
           return (
-            <Grid
-              size={{ xs: 12, md: 6 }}
-              key={crate.code || crate.id || crate.name}
-            >
+            <Grid size={{ xs: 12, md: 6 }} key={pkg.code || pkg.id || pkg.name}>
               <Card sx={{ height: "100%" }}>
                 <CardContent
-                  id={getOfferAnchorId(crate.code)}
+                  id={getOfferAnchorId(pkg.code)}
                   sx={{
                     p: 3,
                     border: isHighlighted ? "2px solid" : "none",
@@ -154,48 +139,51 @@ const Crates = () => {
                   }}
                 >
                   <Stack spacing={2}>
-                    <Box
-                      sx={{
-                        p: 1,
-                        border: "2px solid",
-                        borderColor: "divider",
-                        bgcolor: "background.default",
-                        display: "inline-flex",
-                        alignSelf: "flex-start",
-                      }}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: "center", flexWrap: "wrap" }}
                     >
-                      <Typography variant="body2">
-                        {(crate.status || "Planned").replace(/^./, (s) =>
-                          s.toUpperCase(),
-                        )}
-                      </Typography>
-                    </Box>
-                    <Typography variant="h5">{crate.name}</Typography>
+                      {pkg.badge ? (
+                        <Chip
+                          label={pkg.badge}
+                          size="small"
+                          color="info"
+                          variant="outlined"
+                        />
+                      ) : null}
+                      {pkg.categoryTag ? (
+                        <Chip
+                          label={pkg.categoryTag}
+                          size="small"
+                          color="accent"
+                          variant="outlined"
+                        />
+                      ) : null}
+                      {discountInfo ? (
+                        <Chip
+                          label={getDiscountLabel(discountInfo)}
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                        />
+                      ) : null}
+                      {isHighlighted ? (
+                        <Chip
+                          label="Highlighted Offer"
+                          size="small"
+                          color="accent"
+                        />
+                      ) : null}
+                    </Stack>
 
-                    {discountInfo ? (
-                      <Chip
-                        label={getDiscountLabel(discountInfo)}
-                        size="small"
-                        color="success"
-                        variant="outlined"
-                        sx={{ alignSelf: "flex-start" }}
-                      />
-                    ) : null}
+                    <Typography variant="h5">{pkg.name}</Typography>
 
-                    {isHighlighted ? (
-                      <Chip
-                        label="Highlighted Offer"
-                        size="small"
-                        color="accent"
-                        sx={{ alignSelf: "flex-start" }}
-                      />
-                    ) : null}
-
-                    {crate.crateIcon || crate.img ? (
+                    {pkg.packageIcon ? (
                       <Box
                         component="img"
-                        src={crate.crateIcon || crate.img}
-                        alt={`${crate.name} icon`}
+                        src={pkg.packageIcon}
+                        alt={`${pkg.name} icon`}
                         sx={{
                           width: 72,
                           height: 72,
@@ -214,7 +202,7 @@ const Crates = () => {
                           color="text.secondary"
                           sx={{ textDecoration: "line-through" }}
                         >
-                          {formatMoney(crate.price, currency)}
+                          {formatMoney(pkg.price, currency)}
                         </Typography>
                         <Typography
                           sx={{ fontWeight: 700, color: "error.main" }}
@@ -224,48 +212,37 @@ const Crates = () => {
                       </Stack>
                     ) : (
                       <Typography color="text.secondary">
-                        {formatMoney(crate.price, currency)}
+                        {formatMoney(pkg.price, currency)}
                       </Typography>
                     )}
-                    <Typography color="text.secondary">
-                      {crate.info ||
-                        crate.description ||
-                        "Crate details are coming soon."}
-                    </Typography>
 
-                    {crate.inventoryImage ? (
-                      <Box>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mb: 0.75 }}
-                        >
-                          Inventory Preview
-                        </Typography>
-                        <Box
-                          component="img"
-                          src={crate.inventoryImage}
-                          alt={`${crate.name} inventory preview`}
-                          sx={{
-                            width: "100%",
-                            maxHeight: 180,
-                            objectFit: "contain",
-                            border: "2px solid",
-                            borderColor: "divider",
-                            borderRadius: 1,
-                            p: 1,
-                            bgcolor: "background.default",
-                          }}
-                        />
-                      </Box>
+                    {pkg.img ? (
+                      <Box
+                        component="img"
+                        src={pkg.img}
+                        alt={pkg.name}
+                        sx={{
+                          width: "100%",
+                          maxHeight: 170,
+                          objectFit: "contain",
+                          border: "2px solid",
+                          borderColor: "divider",
+                          p: 1,
+                          bgcolor: "background.default",
+                        }}
+                      />
                     ) : null}
+
+                    <Typography color="text.secondary">
+                      {pkg.description || "Package details are being prepared."}
+                    </Typography>
 
                     <Button
                       variant="outlined"
-                      onClick={() => handleBuy(crate)}
+                      onClick={() => handleBuy(pkg)}
                       sx={{ alignSelf: "flex-start" }}
                     >
-                      Queue Interest
+                      View Package
                     </Button>
                   </Stack>
                 </CardContent>
@@ -273,17 +250,29 @@ const Crates = () => {
             </Grid>
           );
         })}
-
-        {!loading && !crates.length ? (
-          <Grid size={{ xs: 12 }}>
-            <Typography color="text.secondary">
-              No active crates found. Add crates from the CMS dashboard.
-            </Typography>
-          </Grid>
-        ) : null}
       </Grid>
+
+      {!loading && !packages.length ? (
+        <Card>
+          <CardContent sx={{ p: 3 }}>
+            <Typography color="text.secondary">
+              No active packages found. Add packages from the CMS dashboard.
+            </Typography>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {loading ? (
+        <Card>
+          <CardContent sx={{ p: 3 }}>
+            <Typography color="text.secondary">
+              Loading package catalog...
+            </Typography>
+          </CardContent>
+        </Card>
+      ) : null}
     </Stack>
   );
 };
 
-export default Crates;
+export default Packages;

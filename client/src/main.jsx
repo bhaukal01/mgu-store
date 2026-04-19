@@ -13,6 +13,7 @@ import "@fontsource/fraunces/700.css";
 import Index from "./Index.jsx";
 import Ranks from "./Ranks.jsx";
 import Crates from "./Crates.jsx";
+import Packages from "./Packages.jsx";
 import RankUp from "./RankUp.jsx";
 import Buy from "./Buy.jsx";
 import AdminLogin from "./AdminLogin.jsx"; // New for admin login
@@ -38,6 +39,7 @@ createRoot(document.getElementById("root")).render(
             <Route path="/" element={<Index />} />
             <Route path="/ranks" element={<Ranks />} />
             <Route path="/crates" element={<Crates />} />
+            <Route path="/packages" element={<Packages />} />
             <Route path="/upgrades" element={<RankUp />} />
             <Route path="/buy" element={<Buy />} />
             <Route path="/success" element={<PaymentSuccess />} />

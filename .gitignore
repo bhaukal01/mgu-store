@@ -61,3 +61,11 @@ bin/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# UI Definitions
+ui.md
+ui.tokens.json
+
+# Graphify files
+.graphify*
+/graphify*

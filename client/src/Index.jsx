@@ -16,16 +16,46 @@ import { Link as RouterLink } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Star, UserRound } from "lucide-react";
 import axios from "axios";
 
-import ranksData from "./data/ranks.json";
+import {
+  fetchStorefrontCatalog,
+  getStoreRouteForProductCategory,
+} from "./data/cmsCatalogApi";
 
 const Index = () => {
-  const lifetime = ranksData.lifetimeRanks || [];
-  const subscription = ranksData.subscriptionRanks || [];
-  const currency = ranksData.currency || "INR";
-  const allProducts = useMemo(
-    () => [...lifetime, ...subscription],
-    [lifetime, subscription],
-  );
+  const [catalog, setCatalog] = useState({
+    currency: "INR",
+    lifetimeRanks: [],
+    subscriptionRanks: [],
+    crates: [],
+    packages: [],
+    allProducts: [],
+  });
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
+
+  const lifetime = catalog.lifetimeRanks || [];
+  const subscription = catalog.subscriptionRanks || [];
+  const packageProducts = catalog.packages || [];
+  const currency = catalog.currency || "INR";
+
+  const allProducts = useMemo(() => {
+    if (Array.isArray(catalog.allProducts) && catalog.allProducts.length) {
+      return catalog.allProducts;
+    }
+
+    return [
+      ...lifetime.map((row) => ({ ...row, category: "ranks" })),
+      ...subscription.map((row) => ({ ...row, category: "ranks" })),
+      ...(catalog.crates || []).map((row) => ({ ...row, category: "crates" })),
+      ...packageProducts.map((row) => ({ ...row, category: "packages" })),
+    ];
+  }, [
+    catalog.allProducts,
+    lifetime,
+    subscription,
+    catalog.crates,
+    packageProducts,
+  ]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -35,6 +65,34 @@ const Index = () => {
 
   const apiBaseUrl =
     import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:5000";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCatalog = async () => {
+      setCatalogLoading(true);
+      setCatalogError("");
+
+      try {
+        const nextCatalog = await fetchStorefrontCatalog();
+        if (cancelled) return;
+        setCatalog(nextCatalog);
+      } catch (catalogFetchError) {
+        if (cancelled) return;
+        setCatalogError(
+          catalogFetchError?.response?.data?.error ||
+            "Could not load product catalog",
+        );
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    };
+
+    loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +151,16 @@ const Index = () => {
     return map;
   }, [allProducts]);
 
+  const discountProductsByCategory = useMemo(() => {
+    const map = new Map();
+    allProducts.forEach((product) => {
+      const category = String(product.category || "").toLowerCase();
+      if (!category || map.has(category)) return;
+      map.set(category, product);
+    });
+    return map;
+  }, [allProducts]);
+
   return (
     <Stack spacing={3}>
       <Card>
@@ -107,24 +175,38 @@ const Index = () => {
                 </Typography>
 
                 <Grid container spacing={1.5}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <Card sx={{ bgcolor: "background.default" }}>
                       <CardContent sx={{ p: 2 }}>
                         <Typography variant="body2" color="text.secondary">
                           Lifetime Packages
                         </Typography>
-                        <Typography variant="h4">{lifetime.length}</Typography>
+                        <Typography variant="h4">
+                          {catalogLoading ? "-" : lifetime.length}
+                        </Typography>
                       </CardContent>
                     </Card>
                   </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <Card sx={{ bgcolor: "background.default" }}>
                       <CardContent sx={{ p: 2 }}>
                         <Typography variant="body2" color="text.secondary">
                           Monthly Packages
                         </Typography>
                         <Typography variant="h4">
-                          {subscription.length}
+                          {catalogLoading ? "-" : subscription.length}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Card sx={{ bgcolor: "background.default" }}>
+                      <CardContent sx={{ p: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Bundled Packages
+                        </Typography>
+                        <Typography variant="h4">
+                          {catalogLoading ? "-" : packageProducts.length}
                         </Typography>
                       </CardContent>
                     </Card>
@@ -169,6 +251,13 @@ const Index = () => {
                     >
                       Rank Upgrades
                     </Button>
+                    <Button
+                      variant="outlined"
+                      component={RouterLink}
+                      to="/packages"
+                    >
+                      Browse Packages
+                    </Button>
                   </Stack>
                 </CardContent>
               </Card>
@@ -177,6 +266,7 @@ const Index = () => {
         </CardContent>
       </Card>
 
+      {catalogError ? <Alert severity="warning">{catalogError}</Alert> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
 
       <Grid container spacing={2}>
@@ -228,7 +318,7 @@ const Index = () => {
                       <Button
                         variant="outlined"
                         component={RouterLink}
-                        to={`/ranks?highlight=${encodeURIComponent(topSellingRank.productCode)}`}
+                        to={`${getStoreRouteForProductCategory(topSellingProduct?.category)}?highlight=${encodeURIComponent(topSellingRank.productCode)}`}
                       >
                         View Rank
                       </Button>
@@ -273,7 +363,7 @@ const Index = () => {
                       <Button
                         variant="outlined"
                         component={RouterLink}
-                        to={`/ranks?highlight=${encodeURIComponent(lastBuyerProduct.code)}`}
+                        to={`${getStoreRouteForProductCategory(lastBuyerProduct.category)}?highlight=${encodeURIComponent(lastBuyerProduct.code)}`}
                       >
                         View Rank
                       </Button>
@@ -300,15 +390,44 @@ const Index = () => {
                   </>
                 ) : ongoingDiscounts.length ? (
                   ongoingDiscounts.map((discount) => {
-                    const product = discount.productCode
-                      ? discountProductsByCode.get(discount.productCode)
-                      : null;
+                    const scopedCodes = Array.isArray(discount.productCodes)
+                      ? discount.productCodes
+                      : discount.productCode
+                        ? [discount.productCode]
+                        : [];
+
+                    const scopedCategories = Array.isArray(
+                      discount.productCategories,
+                    )
+                      ? discount.productCategories
+                      : [];
+
+                    const productFromCode = scopedCodes
+                      .map((code) => discountProductsByCode.get(code))
+                      .find(Boolean);
+
+                    const productFromCategory = scopedCategories
+                      .map((category) =>
+                        discountProductsByCategory.get(
+                          String(category || "").toLowerCase(),
+                        ),
+                      )
+                      .find(Boolean);
+
+                    const product =
+                      productFromCode || productFromCategory || null;
+
+                    const scopeLabel = scopedCategories.length
+                      ? scopedCategories.join(", ")
+                      : scopedCodes.length
+                        ? scopedCodes.join(", ")
+                        : "All products";
 
                     return (
                       <Box
                         key={
                           discount.id ||
-                          `${discount.title}-${discount.productCode || "global"}`
+                          `${discount.title}-${scopeLabel || "global"}`
                         }
                         sx={{
                           border: "2px solid",
@@ -338,17 +457,23 @@ const Index = () => {
                           {discount.discountType &&
                           discount.discountValue !== null ? (
                             <Typography variant="body2" color="text.secondary">
-                              {discount.discountType === "percent"
-                                ? `${discount.discountValue}% off`
-                                : `${currency} ${discount.discountValue} off`}
+                              {discount.kind === "coupon"
+                                ? `Use code ${discount.code || ""}${discount.discountType === "percent" ? ` for ${discount.discountValue}% off` : ` for ${currency} ${discount.discountValue} off`}`
+                                : discount.discountType === "percent"
+                                  ? `${discount.discountValue}% off`
+                                  : `${currency} ${discount.discountValue} off`}
                             </Typography>
                           ) : null}
+
+                          <Typography variant="caption" color="text.secondary">
+                            Scope: {scopeLabel}
+                          </Typography>
 
                           {product ? (
                             <Button
                               variant="outlined"
                               component={RouterLink}
-                              to={`/ranks?highlight=${encodeURIComponent(product.code)}`}
+                              to={`${getStoreRouteForProductCategory(product.category)}?highlight=${encodeURIComponent(product.code)}`}
                               sx={{ alignSelf: "flex-start" }}
                             >
                               View Offer

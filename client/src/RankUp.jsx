@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -24,11 +24,7 @@ import {
 import { ArrowRight, Calculator } from "lucide-react";
 
 import axios from "axios";
-
-import ranksData from "./data/ranks.json";
-
-const ranks = ranksData.lifetimeRanks || [];
-const currency = ranksData.currency || "INR";
+import { fetchStorefrontCatalog } from "./data/cmsCatalogApi";
 
 const RankUp = () => {
   const navigate = useNavigate();
@@ -39,14 +35,72 @@ const RankUp = () => {
   const [username, setUsername] = useState("");
   const [step, setStep] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [error, setError] = useState("");
+  const [catalogError, setCatalogError] = useState("");
+
+  const [ranks, setRanks] = useState([]);
+  const [currency, setCurrency] = useState("INR");
 
   const [currentLifetimeRank, setCurrentLifetimeRank] = useState(null);
   const [subscriptionRank, setSubscriptionRank] = useState(null);
 
   const [selectedTargetCode, setSelectedTargetCode] = useState("");
-  const [baseCode, setBaseCode] = useState(ranks[0]?.code || "");
-  const [targetCode, setTargetCode] = useState(ranks[1]?.code || "");
+  const [baseCode, setBaseCode] = useState("");
+  const [targetCode, setTargetCode] = useState("");
+
+  useEffect(() => {
+    let disposed = false;
+
+    const loadRankCatalog = async () => {
+      setCatalogLoading(true);
+      setCatalogError("");
+
+      try {
+        const catalog = await fetchStorefrontCatalog();
+        if (disposed) return;
+
+        const lifetimeRanks = catalog.lifetimeRanks || [];
+        setRanks(lifetimeRanks);
+        setCurrency(catalog.currency || "INR");
+      } catch (catalogFetchError) {
+        if (disposed) return;
+        setCatalogError(
+          catalogFetchError?.response?.data?.error ||
+            "Failed to load rank catalog",
+        );
+      } finally {
+        if (!disposed) setCatalogLoading(false);
+      }
+    };
+
+    loadRankCatalog();
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ranks.length) {
+      setBaseCode("");
+      setTargetCode("");
+      return;
+    }
+
+    setBaseCode((current) =>
+      current && ranks.some((rank) => rank.code === current)
+        ? current
+        : ranks[0]?.code || "",
+    );
+
+    setTargetCode((current) => {
+      if (current && ranks.some((rank) => rank.code === current)) {
+        return current;
+      }
+      return ranks[1]?.code || ranks[0]?.code || "";
+    });
+  }, [ranks]);
 
   const currentRankObj = useMemo(() => {
     if (!currentLifetimeRank) return null;
@@ -97,6 +151,12 @@ const RankUp = () => {
 
   const start = () => {
     setError("");
+    if (!ranks.length) {
+      setCatalogError(
+        "No lifetime ranks are currently available for upgrades.",
+      );
+      return;
+    }
     setStep("ask-username");
   };
 
@@ -162,6 +222,11 @@ const RankUp = () => {
               Check your current rank and see upgrade options available for your
               account.
             </Typography>
+
+            {catalogError ? (
+              <Alert severity="warning">{catalogError}</Alert>
+            ) : null}
+
             <Button
               variant="contained"
               color="secondary"
@@ -169,6 +234,7 @@ const RankUp = () => {
               endIcon={<ArrowRight size={14} />}
               size="large"
               sx={{ alignSelf: "flex-start", minWidth: 240 }}
+              disabled={catalogLoading || !ranks.length}
             >
               Check My Rank & Upgrade
             </Button>
@@ -199,6 +265,7 @@ const RankUp = () => {
                     onChange={(eventItem) =>
                       setBaseCode(eventItem.target.value)
                     }
+                    disabled={!ranks.length}
                   >
                     {ranks.map((rank) => (
                       <MenuItem value={rank.code} key={`${rank.code}-base`}>
@@ -223,6 +290,7 @@ const RankUp = () => {
                     onChange={(eventItem) =>
                       setTargetCode(eventItem.target.value)
                     }
+                    disabled={!ranks.length}
                   >
                     {ranks.map((rank) => (
                       <MenuItem value={rank.code} key={`${rank.code}-target`}>

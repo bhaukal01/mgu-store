@@ -1,11 +1,12 @@
 import React from "react";
 import { Box, Button, Chip, Container, Stack, Typography } from "@mui/material";
-import { Crown, Gem, ArrowUpCircle, Shield } from "lucide-react";
+import { Crown, Gem, ArrowUpCircle, Shield, PackageOpen } from "lucide-react";
 import { Link as RouterLink } from "react-router-dom";
 
 const navItems = [
   { key: "home", label: "Home", to: "/", icon: Shield },
   { key: "ranks", label: "Ranks", to: "/ranks", icon: Crown },
+  { key: "packages", label: "Packages", to: "/packages", icon: PackageOpen },
   {
     key: "upgrades",
     label: "Rank Upgrades",
